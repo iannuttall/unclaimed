@@ -1,0 +1,35 @@
+name = "domain-check"
+main = "src/index.ts"
+compatibility_date = "2026-06-01"
+
+# TCP sockets (cloudflare:sockets) and fetch are available by default with a
+# recent compatibility_date — no extra flags needed for WHOIS.
+
+# ---- Tracking (D1) ----
+# The tracking endpoints (/available, /candidates, /dropping, /stats) and the
+# cron need a D1 database. Create it, paste the id, then apply migrations:
+#   pnpm wrangler d1 create domains-tracker
+#   pnpm wrangler d1 migrations apply domains-tracker --remote
+# Local dev (`pnpm dev`) uses a local SQLite copy; the placeholder id below is
+# fine for local. Replace it with the real id before `pnpm deploy`.
+[[d1_databases]]
+binding = "DB"
+database_name = "domains-tracker"
+database_id = "REPLACE_WITH_REAL_ID_BEFORE_DEPLOY"
+migrations_dir = "migrations"
+
+# Re-check the stalest slice of the tracked list every 5 minutes.
+[triggers]
+crons = ["*/5 * * * *"]
+
+# ---- Optional caching (KV) ----
+# Speeds up /check and caches the IANA bootstrap. Not required for tracking.
+#   pnpm wrangler kv namespace create DOMAIN_CACHE
+# [[kv_namespaces]]
+# binding = "DOMAIN_CACHE"
+# id = "<your-kv-namespace-id>"
+
+# ---- Optional admin token ----
+# If set, /seed and /run require ?token=<value>. Set via: pnpm wrangler secret put ADMIN_TOKEN
+# [vars]
+# (use a secret, not a plaintext var, for ADMIN_TOKEN)

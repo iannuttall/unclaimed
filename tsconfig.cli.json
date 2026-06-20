@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "lib": ["ES2023"]
+  },
+  "include": [
+    "src/cli.ts",
+    "src/store.ts",
+    "src/whois-node.ts",
+    "src/pricing.ts",
+    "src/resolvers.ts",
+    "src/rdap.ts",
+    "src/liveness.ts",
+    "src/words.json"
+  ],
+  "exclude": []
+}

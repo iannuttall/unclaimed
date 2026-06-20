@@ -1,0 +1,30 @@
+{
+  "name": "domain-check",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.1.1",
+  "scripts": {
+    "domains": "NODE_NO_WARNINGS=1 tsx src/cli.ts",
+    "sweep": "NODE_NO_WARNINGS=1 tsx src/cli.ts sweep",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.cli.json --noEmit",
+    "build:words": "node scripts/build-wordlist.mjs"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260617.1",
+    "@types/node": "^25.9.3",
+    "tsx": "^4.22.4",
+    "typescript": "^5.5.4",
+    "wordnet-db": "^3.1.14",
+    "wrangler": "^4.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "workerd",
+      "sharp"
+    ]
+  }
+}

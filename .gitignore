@@ -1,0 +1,13 @@
+node_modules/
+.wrangler/
+*.log
+scripts/cache/
+scripts/data/batches/
+scripts/data/keep/
+scripts/data/p2-batches/
+scripts/data/p2-keep/
+scripts/data/rec-batches/
+scripts/data/rec-keep/
+scripts/data/heuristic-words.detail.json
+data/
+.env
