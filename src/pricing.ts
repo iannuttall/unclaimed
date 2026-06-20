@@ -35,6 +35,17 @@ export function porkbunKeysFromEnv(): PorkbunKeys | null {
   return { apikey, secretapikey };
 }
 
+/**
+ * TLDs Porkbun actually sells (free, unauthenticated, unlimited). Pricing a TLD
+ * Porkbun doesn't carry just wastes a rate-limited call and can mis-report a
+ * genuinely-available name as unavailable — so skip those.
+ */
+export async function porkbunSupportedTlds(): Promise<Set<string>> {
+  const res = await fetch(`${BASE}/pricing/get`, { signal: AbortSignal.timeout(15000) });
+  const j = (await res.json()) as { status?: string; pricing?: Record<string, unknown> };
+  return new Set(Object.keys(j.pricing ?? {}));
+}
+
 /** Validate keys (and connectivity). Returns the egress IP on success. */
 export async function porkbunPing(keys: PorkbunKeys): Promise<string> {
   const res = await fetch(`${BASE}/ping`, {
@@ -46,6 +57,122 @@ export async function porkbunPing(keys: PorkbunKeys): Promise<string> {
   const j = (await res.json()) as { status?: string; yourIp?: string; message?: string };
   if (j.status !== "SUCCESS") throw new Error(j.message || "porkbun auth failed");
   return j.yourIp ?? "";
+}
+
+/** Registration base prices per TLD from Porkbun's free /pricing/get — used as
+ *  the reference "standard" price across providers (premium prices come per-name). */
+export async function porkbunTldPrices(): Promise<Map<string, number>> {
+  const res = await fetch(`${BASE}/pricing/get`, { signal: AbortSignal.timeout(15000) });
+  const j = (await res.json()) as {
+    pricing?: Record<string, { registration?: string }>;
+  };
+  const map = new Map<string, number>();
+  for (const [tld, p] of Object.entries(j.pricing ?? {})) {
+    const n = Number(p?.registration);
+    if (!Number.isNaN(n)) map.set(tld, n);
+  }
+  return map;
+}
+
+// ---- Namecheap (bulk) -----------------------------------------------------
+
+export interface NamecheapCreds {
+  apiUser: string;
+  apiKey: string;
+  userName: string;
+  clientIp: string;
+}
+
+export function namecheapCredsFromEnv(): Omit<NamecheapCreds, "clientIp"> | null {
+  const apiUser = process.env.NAMECHEAP_API_USER;
+  const apiKey = process.env.NAMECHEAP_API_KEY;
+  const userName = process.env.NAMECHEAP_USERNAME || apiUser;
+  if (!apiUser || !apiKey || !userName) return null;
+  return { apiUser, apiKey, userName };
+}
+
+/** Public egress IP (must be whitelisted in Namecheap). Env override wins. */
+export async function detectClientIp(): Promise<string> {
+  if (process.env.NAMECHEAP_CLIENT_IP) return process.env.NAMECHEAP_CLIENT_IP;
+  try {
+    const r = await fetch("https://api.ipify.org", { signal: AbortSignal.timeout(10000) });
+    return (await r.text()).trim();
+  } catch {
+    return "";
+  }
+}
+
+const NC_BASE = "https://api.namecheap.com/xml.response";
+
+function ncUrl(command: string, creds: NamecheapCreds, extra: Record<string, string>): string {
+  const p = new URLSearchParams({
+    ApiUser: creds.apiUser,
+    ApiKey: creds.apiKey,
+    UserName: creds.userName,
+    ClientIp: creds.clientIp,
+    Command: command,
+    ...extra,
+  });
+  return `${NC_BASE}?${p.toString()}`;
+}
+
+function attr(tag: string, name: string): string | null {
+  const m = tag.match(new RegExp(`${name}="([^"]*)"`, "i"));
+  return m ? m[1] : null;
+}
+
+/** The set of TLDs Namecheap offers (namecheap.domains.getTldList). */
+export async function namecheapSupportedTlds(creds: NamecheapCreds): Promise<Set<string>> {
+  const res = await fetch(ncUrl("namecheap.domains.getTldList", creds, {}), {
+    signal: AbortSignal.timeout(20000),
+  });
+  const xml = await res.text();
+  if (/Status="ERROR"/i.test(xml)) {
+    const err = xml.match(/<Error[^>]*>([^<]*)<\/Error>/i)?.[1] ?? "namecheap error";
+    throw new Error(err);
+  }
+  const set = new Set<string>();
+  for (const m of xml.matchAll(/<Tld\s+([^>]*?)>/gi)) {
+    const name = attr(m[1], "Name");
+    if (name) set.add(name.toLowerCase());
+  }
+  return set;
+}
+
+export interface NcCheck {
+  available: boolean | null;
+  premium: boolean | null;
+  premiumPrice: number | null;
+}
+
+/** Bulk availability+premium check (up to ~50 domains per call). */
+export async function namecheapBulkCheck(
+  domains: string[],
+  creds: NamecheapCreds,
+): Promise<Map<string, NcCheck>> {
+  const out = new Map<string, NcCheck>();
+  const res = await fetch(
+    ncUrl("namecheap.domains.check", creds, { DomainList: domains.join(",") }),
+    { signal: AbortSignal.timeout(30000) },
+  );
+  const xml = await res.text();
+  if (/Status="ERROR"/i.test(xml)) {
+    const err = xml.match(/<Error[^>]*>([^<]*)<\/Error>/i)?.[1] ?? "namecheap error";
+    throw new Error(err);
+  }
+  for (const m of xml.matchAll(/<DomainCheckResult\s+([^>]*?)\/?>/gi)) {
+    const t = m[1];
+    const domain = (attr(t, "Domain") ?? "").toLowerCase();
+    if (!domain) continue;
+    const prem = attr(t, "IsPremiumName");
+    const price = Number(attr(t, "PremiumRegistrationPrice"));
+    out.set(domain, {
+      available: attr(t, "Available")?.toLowerCase() === "true",
+      premium: prem == null ? null : prem.toLowerCase() === "true",
+      premiumPrice: !Number.isNaN(price) && price > 0 ? price : null,
+    });
+  }
+  return out;
 }
 
 interface CheckResponse {

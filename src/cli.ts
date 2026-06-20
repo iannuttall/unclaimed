@@ -17,7 +17,13 @@ import { readFileSync, existsSync } from "node:fs";
 import { checkDomain, setWhoisTransport } from "./resolvers";
 import { whoisQuery } from "./whois-node";
 import { checkLiveness } from "./liveness";
-import { checkPorkbun, porkbunKeysFromEnv, porkbunPing } from "./pricing";
+import {
+  porkbunTldPrices,
+  namecheapCredsFromEnv,
+  detectClientIp,
+  namecheapSupportedTlds,
+  namecheapBulkCheck,
+} from "./pricing";
 import { Store, type DomainRow, type ResultUpdate } from "./store";
 import words from "./words.json";
 
@@ -353,17 +359,7 @@ async function cmdSweep(flags: Record<string, string | boolean>) {
   // false-positive correction). Note this is rate-limited (~1/10s) so it can run
   // far longer than the sweep itself.
   if (flags.price === true) {
-    const keys = porkbunKeysFromEnv();
-    if (!keys) {
-      console.log(C.yellow("  --price skipped: Porkbun keys missing in .env"));
-    } else {
-      try {
-        await porkbunPing(keys);
-        await runPricing(store, keys, flags);
-      } catch (e) {
-        console.log(C.yellow("  --price skipped: " + String((e as Error).message ?? e)));
-      }
-    }
+    await runPricing(store, flags);
   }
   store.close();
 }
@@ -408,85 +404,127 @@ async function cmdVerify(flags: Record<string, string | boolean>) {
   store.close();
 }
 
-// Price available names via Porkbun: stores premium/price and CORRECTS status
-// when the registrar says a name isn't actually registerable (reserved/taken).
-// Resumable (priced rows are skipped) and best-first, so partial runs still
-// price the valuable names. Shared by `price` and `sweep --price`.
+// Flat-rate TLDs with no premium tiers — every name is the same price, so we
+// attribute it directly with no API call (Porkbun doesn't sell these anyway).
+const FLAT_PRICING: Record<string, number> = { so: 70, md: 57 };
+
+// Price available names: stores premium flag + price and CORRECTS status when
+// the registrar says a name isn't registerable (reserved/taken). Routing:
+//   .md/.so   -> flat price (no API)
+//   Namecheap -> bulk check (50/call) for every TLD it sells
+//   leftover  -> skipped (no supported source)
+// Standard prices come from Porkbun's free /pricing/get; premium prices per-name
+// from Namecheap. Resumable (priced rows skipped) and best-first.
 async function runPricing(
   store: Store,
-  keys: { apikey: string; secretapikey: string },
   flags: Record<string, string | boolean>,
 ): Promise<void> {
   const tlds = parseTlds(flags);
   const words_ = wordFilterFromFlags(flags);
   const limit = flags.limit ? Number(flags.limit) : undefined; // undefined = all
-  // checkDomain is hard-limited to 1 / 10s; 10.2s keeps us safely under it.
-  const delay = Number(flags.delay) || 10200;
 
   let rows = store.unpricedAvailable(tlds, words_);
   rows = rows.sort((a, b) => qualityScore(b) - qualityScore(a));
   if (limit !== undefined) rows = rows.slice(0, limit);
-  const total = rows.length;
-  if (!total) {
+  if (!rows.length) {
     console.log(C.dim("  nothing to price (all available rows already priced)"));
     return;
   }
-  const etaH = ((total * delay) / 3_600_000).toFixed(1);
-  console.log(
-    C.bold(`\nPricing ${total} available names via Porkbun`) +
-      C.dim(` (~${etaH}h at 1/${(delay / 1000).toFixed(0)}s · resumable · best-first)\n`),
-  );
 
-  let i = 0;
+  // Free base (standard) prices per TLD, no auth.
+  const basePrices = await porkbunTldPrices().catch(() => new Map<string, number>());
+
+  // Namecheap creds + the set of TLDs it sells.
+  const ncBase = namecheapCredsFromEnv();
+  let nc: { apiUser: string; apiKey: string; userName: string; clientIp: string } | null = null;
+  let ncTlds = new Set<string>();
+  if (ncBase) {
+    const clientIp = await detectClientIp();
+    nc = { ...ncBase, clientIp };
+    try {
+      ncTlds = await namecheapSupportedTlds(nc);
+      console.log(C.dim(`  namecheap ok (ip ${clientIp}, ${ncTlds.size} TLDs)`));
+    } catch (e) {
+      console.log(C.yellow("  namecheap auth failed: " + String((e as Error).message ?? e)));
+      nc = null;
+    }
+  } else {
+    console.log(C.yellow("  no Namecheap creds — only .md/.so flat pricing will run"));
+  }
+
+  const flatRows = rows.filter((r) => FLAT_PRICING[r.tld] !== undefined);
+  const ncRows = nc ? rows.filter((r) => FLAT_PRICING[r.tld] === undefined && ncTlds.has(r.tld)) : [];
+  const skipped = rows.length - flatRows.length - ncRows.length;
+
   let priced = 0;
-  let corrected = 0;
   let premium = 0;
+  let corrected = 0;
   let errors = 0;
-  await runPool(
-    rows,
-    1,
-    async (row) => {
-      i++;
-      const p = await checkPorkbun(row.domain, keys);
-      if (!p) {
-        errors++;
-        return;
+
+  // 1) flat-rate ccTLDs — instant, no API
+  for (const r of flatRows) {
+    const price = FLAT_PRICING[r.tld];
+    store.applyPricing(r, { available: true, premium: false, price, renewalPrice: price, currency: "USD" });
+    priced++;
+  }
+  if (flatRows.length)
+    console.log(C.dim(`  flat-priced ${flatRows.length} on ${Object.keys(FLAT_PRICING).map((t) => "." + t).join("/")}`));
+
+  // 2) Namecheap bulk — 50 per call
+  const BATCH = 50;
+  if (ncRows.length) {
+    console.log(C.bold(`\nPricing ${ncRows.length} via Namecheap (bulk, best-first)\n`));
+    for (let b = 0; b < ncRows.length; b += BATCH) {
+      const chunk = ncRows.slice(b, b + BATCH);
+      let results;
+      try {
+        results = await namecheapBulkCheck(chunk.map((r) => r.domain), nc!);
+      } catch (e) {
+        errors += chunk.length;
+        console.log(C.yellow(`  batch error: ${String((e as Error).message ?? e)}`));
+        await sleep(2000);
+        continue;
       }
-      const r = store.applyPricing(row, p);
-      priced++;
-      if (r === "corrected") {
-        corrected++;
-        console.log(`  ${String(i).padStart(5)} ${row.domain.padEnd(24)} ${C.yellow("→ registered (not registerable)")}`);
-      } else {
-        if (p.premium) premium++;
-        const star = p.premium ? C.red("*") : " ";
-        const price = p.price != null ? "$" + p.price : p.premium ? "(premium)" : "?";
-        console.log(`  ${String(i).padStart(5)} ${star} ${row.domain.padEnd(24)} ${price}`);
+      for (const r of chunk) {
+        const c = results.get(r.domain);
+        if (!c || c.available === null) {
+          errors++;
+          continue;
+        }
+        const price = c.premium ? c.premiumPrice : (basePrices.get(r.tld) ?? null);
+        const res = store.applyPricing(r, {
+          available: c.available,
+          premium: c.premium,
+          price,
+          renewalPrice: price,
+          currency: "USD",
+        });
+        priced++;
+        if (res === "corrected") {
+          corrected++;
+          console.log(`  ${r.domain.padEnd(24)} ${C.yellow("→ registered (taken)")}`);
+        } else if (c.premium) {
+          premium++;
+          console.log(`  ${C.red("*")} ${r.domain.padEnd(24)} ${price != null ? "$" + price : "(premium)"}`);
+        }
       }
-    },
-    delay,
-  );
+      process.stdout.write(
+        `\r\x1b[K${C.dim(`  ${Math.min(b + BATCH, ncRows.length)}/${ncRows.length} · ${premium} premium · ${corrected} corrected · ${errors} err`)}`,
+      );
+      await sleep(1200); // be gentle on Namecheap's per-minute limit
+    }
+    process.stdout.write("\r\x1b[K");
+  }
+
+  if (skipped) console.log(C.dim(`  skipped ${skipped} rows on TLDs no source covers`));
   console.log(
-    C.bold(
-      `\nPriced ${priced} · ${premium} premium · ${corrected} corrected (false available) · ${errors} errors\n`,
-    ),
+    C.bold(`\nPriced ${priced} · ${premium} premium · ${corrected} corrected · ${errors} errors\n`),
   );
 }
 
 async function cmdPrice(flags: Record<string, string | boolean>) {
-  const keys = porkbunKeysFromEnv();
-  if (!keys)
-    return fail(
-      "Porkbun keys missing — put PORKBUN_API_KEY and PORKBUN_SECRET_KEY in .env (and enable API access in your Porkbun account).",
-    );
-  try {
-    const ip = await porkbunPing(keys);
-    console.log(C.dim(`porkbun auth ok (egress ${ip})`));
-  } catch (e) {
-    return fail("Porkbun auth failed: " + String((e as Error).message ?? e));
-  }
   const store = new Store((flags.db as string) || DEFAULT_DB);
-  await runPricing(store, keys, flags);
+  await runPricing(store, flags);
   store.close();
 }
 
@@ -621,7 +659,7 @@ async function main() {
           "",
           "  --sort=quality ranks by word commonness × TLD desirability (best first)",
           "  --len=4-5 (or --min-len / --max-len) filters by word length",
-          "  price = registrar pricing (Porkbun): premium flag + price, and fixes false 'available'",
+          "  price = registrar pricing (Namecheap bulk + .md/.so flat): premium flag + price, fixes false 'available'",
           "",
           `  default TLDs: ${PRIORITY_TLDS.join(", ")}`,
           `  curated words: ${(words as string[]).length}`,
