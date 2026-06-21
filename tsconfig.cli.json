@@ -12,7 +12,8 @@
     "src/resolvers.ts",
     "src/rdap.ts",
     "src/liveness.ts",
-    "src/words.json"
+    "src/words.json",
+    "src/tech-words.json"
   ],
   "exclude": []
 }

@@ -26,6 +26,7 @@ import {
 } from "./pricing";
 import { Store, type DomainRow, type ResultUpdate } from "./store";
 import words from "./words.json";
+import techWords from "./tech-words.json";
 
 // WHOIS over node:net in the CLI runtime.
 setWhoisTransport(whoisQuery);
@@ -160,6 +161,23 @@ function qualityScore(row: DomainRow): number {
   return Math.round(wordScore * 0.55 + tldTier(row.tld) * 0.45);
 }
 
+// Domainer flip-value: a free-to-register name worth far more than its reg fee.
+// Rewards desirable + CHEAP-to-reg (high margin) + niche-hot + short/punchy;
+// penalises premium (the registry already took the value -> thin margin).
+const NICHE = new Set(techWords as string[]);
+function commercialScore(row: DomainRow): number {
+  let s = qualityScore(row);
+  if (row.priced_at) {
+    if (row.premium) s -= 30; // pay-up-front, low flip margin
+    else s += 20; // confirmed standard price = big margin
+  }
+  if (NICHE.has(row.word)) s += 15; // hot niche (AI/tech/crypto)
+  if (row.word.length <= 5) s += 8;
+  else if (row.word.length <= 7) s += 4;
+  if (row.tld === "ai" || row.tld === "io" || row.tld === "to") s += 6; // short, hacky, liquid
+  return Math.round(s);
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ---- concurrency-limited runner with live progress ------------------------
@@ -252,10 +270,14 @@ function printRows(rows: DomainRow[], cols: "drop" | "site" | "plain") {
   }
 }
 
-// Quality-ranked rows: a score badge then the domain (best first).
-function printScored(rows: DomainRow[], extra?: "site" | "drop") {
+// Score-ranked rows: a score badge then the domain (best first).
+function printScored(
+  rows: DomainRow[],
+  score: (r: DomainRow) => number,
+  extra?: "site" | "drop",
+) {
   for (const r of rows) {
-    const s = qualityScore(r);
+    const s = score(r);
     const badge = (s >= 75 ? C.green : s >= 55 ? C.yellow : C.dim)(String(s).padStart(3));
     let tail = "";
     if (extra === "site") tail = C.dim("  " + (r.site_status ?? ""));
@@ -537,21 +559,24 @@ function cmdSearch(positional: string[], flags: Record<string, string | boolean>
   const status = typeof flags.status === "string" ? flags.status : undefined;
   const noPremium = flags["no-premium"] === true;
   const maxPrice = flags["max-price"] ? Number(flags["max-price"]) : undefined;
-  const byQuality = flags.sort === "quality" || flags.best === true;
-  const limit = Number(flags.limit) || (byQuality ? 50 : 500);
+  const sortMode =
+    flags.sort === "commercial" ? "commercial" : flags.sort === "quality" || flags.best === true ? "quality" : null;
+  const scoreFn = sortMode === "commercial" ? commercialScore : qualityScore;
+  const byScore = sortMode !== null;
+  const limit = Number(flags.limit) || (byScore ? 50 : 500);
 
   let rows = store.search(term, {
     tlds,
     status,
     noPremium,
     maxPrice,
-    limit: byQuality ? 100_000 : limit,
+    limit: byScore ? 100_000 : limit,
   });
-  if (byQuality) {
-    rows = rows.sort((a, b) => qualityScore(b) - qualityScore(a)).slice(0, limit);
+  if (byScore) {
+    rows = rows.sort((a, b) => scoreFn(b) - scoreFn(a)).slice(0, limit);
   }
 
-  const scopeBits = [tlds?.join(", "), status, byQuality ? "by quality" : undefined].filter(Boolean);
+  const scopeBits = [tlds?.join(", "), status, sortMode ? `by ${sortMode}` : undefined].filter(Boolean);
   const scope = scopeBits.length ? C.dim(` [${scopeBits.join(" · ")}]`) : "";
   console.log(C.bold(`\n${rows.length} matching “${term}”:`) + scope);
   for (const r of rows) {
@@ -573,22 +598,22 @@ function cmdQuery(kind: "available" | "candidates" | "dropping" | "stats", flags
   const maxPrice = flags["max-price"] ? Number(flags["max-price"]) : undefined;
   const store = new Store(dbPath);
 
-  // Quality sort happens in JS (needs word-rank × TLD-tier), so fetch broadly
-  // then sort + trim. Default display is 50 for the "best" view, 500 otherwise.
-  const byQuality = flags.sort === "quality" || flags.best === true;
-  const limit = Number(flags.limit) || (byQuality ? 50 : 500);
-  const fetchN = byQuality ? 100_000 : limit;
+  // Score sort (quality or commercial) happens in JS, so fetch broadly then
+  // sort + trim. Default display is 50 for a scored view, 500 otherwise.
+  const sortMode =
+    flags.sort === "commercial" ? "commercial" : flags.sort === "quality" || flags.best === true ? "quality" : null;
+  const scoreFn = sortMode === "commercial" ? commercialScore : qualityScore;
+  const byScore = sortMode !== null;
+  const limit = Number(flags.limit) || (byScore ? 50 : 500);
+  const fetchN = byScore ? 100_000 : limit;
 
-  const lenLabel = lengthActive
-    ? `${minLen ?? 1}-${maxLen ?? "∞"} chars`
-    : undefined;
-  const scopeBits = [tlds?.join(", "), form, lenLabel, byQuality ? "by quality" : undefined].filter(Boolean);
+  const lenLabel = lengthActive ? `${minLen ?? 1}-${maxLen ?? "∞"} chars` : undefined;
+  const sortLabel = sortMode ? `by ${sortMode}` : undefined;
+  const scopeBits = [tlds?.join(", "), form, lenLabel, sortLabel].filter(Boolean);
   const scope = scopeBits.length ? C.dim(` [${scopeBits.join(" · ")}]`) : "";
 
   const trim = (rows: DomainRow[]): DomainRow[] =>
-    byQuality
-      ? [...rows].sort((a, b) => qualityScore(b) - qualityScore(a)).slice(0, limit)
-      : rows;
+    byScore ? [...rows].sort((a, b) => scoreFn(b) - scoreFn(a)).slice(0, limit) : rows;
 
   if (kind === "stats") {
     const sc = store.statusCounts(tlds, words_);
@@ -602,17 +627,17 @@ function cmdQuery(kind: "available" | "candidates" | "dropping" | "stats", flags
   } else if (kind === "available") {
     const rows = trim(store.available(fetchN, tlds, words_, { noPremium, maxPrice }));
     console.log(C.bold(`\n${rows.length} available:`) + scope);
-    byQuality ? printScored(rows) : printRows(rows, "plain");
+    byScore ? printScored(rows, scoreFn) : printRows(rows, "plain");
     console.log();
   } else if (kind === "candidates") {
     const rows = trim(store.cold(fetchN, tlds, words_));
     console.log(C.bold(`\n${rows.length} registered but no real site (cold-outreach leads):`) + scope);
-    byQuality ? printScored(rows, "site") : printRows(rows, "site");
+    byScore ? printScored(rows, scoreFn, "site") : printRows(rows, "site");
     console.log();
   } else {
     const rows = trim(store.dropping(fetchN, tlds, words_));
     console.log(C.bold(`\n${rows.length} registered, soonest estimated drop first:`) + scope);
-    byQuality ? printScored(rows, "drop") : printRows(rows, "drop");
+    byScore ? printScored(rows, scoreFn, "drop") : printRows(rows, "drop");
     console.log();
   }
   store.close();
@@ -658,6 +683,7 @@ async function main() {
           "  pnpm domains search <term> [--tlds=..] [--status=available] [--sort=quality] [--max-price=N]",
           "",
           "  --sort=quality ranks by word commonness × TLD desirability (best first)",
+          "  --sort=commercial ranks free-to-reg flip value (cheap + desirable + niche/short; premium penalised)",
           "  --len=4-5 (or --min-len / --max-len) filters by word length",
           "  price = registrar pricing (Namecheap bulk + .md/.so flat): premium flag + price, fixes false 'available'",
           "",

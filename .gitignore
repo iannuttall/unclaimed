@@ -11,3 +11,7 @@ scripts/data/rec-keep/
 scripts/data/heuristic-words.detail.json
 data/
 .env
+scripts/data/exp-batches/
+scripts/data/exp-keep/
+scripts/data/tech-batches/
+scripts/data/tech-keep/
