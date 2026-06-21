@@ -308,7 +308,106 @@ async function cmdCheck(positional: string[], flags: Record<string, string | boo
   });
 }
 
+// Fast sweep via Namecheap bulk: availability + premium + price in 50-domain
+// calls (~10-50x faster than per-domain RDAP/WHOIS). TLDs Namecheap doesn't sell
+// (.md/.so) fall back to RDAP/WHOIS + flat pricing. Skips liveness/expiry — run a
+// normal `sweep` later if you want cold-outreach / drop data on the registered ones.
+async function cmdSweepFast(flags: Record<string, string | boolean>) {
+  const dbPath = (flags.db as string) || DEFAULT_DB;
+  const tlds = tldList(flags);
+  const maxAttempts = Number(flags.retries) || 3;
+  const wordLimit = flags.words ? Number(flags.words) : (words as string[]).length;
+
+  const ncBase = namecheapCredsFromEnv();
+  if (!ncBase) return fail("--fast needs Namecheap creds in .env (NAMECHEAP_API_USER/API_KEY/USERNAME).");
+  const clientIp = await detectClientIp();
+  const nc = { ...ncBase, clientIp };
+  let ncTlds: Set<string>;
+  try {
+    ncTlds = await namecheapSupportedTlds(nc);
+  } catch (e) {
+    return fail("namecheap auth failed: " + String((e as Error).message ?? e));
+  }
+  const basePrices = await porkbunTldPrices().catch(() => new Map<string, number>());
+
+  const store = new Store(dbPath);
+  const wordSet = (words as string[]).slice(0, wordLimit);
+  const added = store.seed(wordSet, tlds);
+  const total = store.countPending(tlds, maxAttempts);
+  console.log(
+    C.bold(`\nFast sweep (Namecheap bulk): ${wordSet.length} words × ${tlds.length} TLDs`) +
+      C.dim(`  (+${added} new rows · namecheap ip ${clientIp}, ${ncTlds.size} TLDs)\n`),
+  );
+
+  const blank = {
+    expiry: null, estimatedAvailable: null, siteStatus: null,
+    hasSite: null, coldOutreach: false, httpStatus: null,
+  };
+  let done = 0;
+  let avail = 0;
+  let premium = 0;
+  const t0 = Date.now();
+  const BATCH = 50;
+
+  while (true) {
+    const batch = store.pending(tlds, maxAttempts, 1000);
+    if (!batch.length) break;
+    const ncRows = batch.filter((r) => ncTlds.has(r.tld));
+    const otherRows = batch.filter((r) => !ncTlds.has(r.tld));
+
+    // Namecheap-supported TLDs: bulk
+    for (let i = 0; i < ncRows.length; i += BATCH) {
+      const chunk = ncRows.slice(i, i + BATCH);
+      let results;
+      try {
+        results = await namecheapBulkCheck(chunk.map((r) => r.domain), nc);
+      } catch {
+        await sleep(2000);
+        continue;
+      }
+      const now = new Date().toISOString();
+      for (const r of chunk) {
+        const c = results.get(r.domain);
+        const status = !c || c.available === null ? "unknown" : c.available ? "available" : "registered";
+        store.applyResult(r, { status, source: "namecheap", checkedAt: now, ...blank });
+        done++;
+        if (status === "available" && c) {
+          avail++;
+          const price = c.premium ? c.premiumPrice : (basePrices.get(r.tld) ?? null);
+          store.applyPricing(r, { available: true, premium: c.premium, price, renewalPrice: price, currency: "USD" });
+          if (c.premium) premium++;
+        }
+      }
+      const rate = done / Math.max(1, (Date.now() - t0) / 1000);
+      process.stdout.write(`\r\x1b[K${C.dim(`  ${done}/${total} · ${avail} available · ${premium} premium · ${rate.toFixed(0)}/s`)}`);
+      await sleep(1000);
+    }
+
+    // TLDs Namecheap doesn't sell (.md/.so): RDAP/WHOIS, then flat-price available
+    if (otherRows.length) {
+      await runPool(otherRows, 5, async (r) => {
+        const u = await resolveOne(r.domain, false);
+        store.applyResult(r, u);
+        done++;
+        if (u.status === "available") {
+          avail++;
+          const flat = FLAT_PRICING[r.tld];
+          if (flat !== undefined) store.applyPricing(r, { available: true, premium: false, price: flat, renewalPrice: flat, currency: "USD" });
+        }
+      });
+    }
+  }
+
+  process.stdout.write("\r\x1b[K");
+  const sc = store.statusCounts();
+  console.log(C.bold(`\nFast sweep done in ${((Date.now() - t0) / 1000).toFixed(0)}s.`));
+  console.log(`  ${C.green("available " + sc.available)}   registered ${sc.registered}   ${C.yellow("unknown " + sc.unknown)}`);
+  console.log(C.dim(`\n  pnpm domains available --sort=commercial   (run a normal sweep for cold-outreach/drop data)\n`));
+  store.close();
+}
+
 async function cmdSweep(flags: Record<string, string | boolean>) {
+  if (flags.fast === true) return cmdSweepFast(flags);
   const dbPath = (flags.db as string) || DEFAULT_DB;
   const tlds = tldList(flags);
   const concurrency = Number(flags.concurrency) || 6;
@@ -671,6 +770,7 @@ async function main() {
           "",
           "  pnpm domains check <domain|word> [--tlds=io,ai,dev] [--no-liveness]",
           "  pnpm domains sweep [--tlds=..] [--words=N] [--concurrency=6] [--retries=3] [--delay=ms] [--price] [--no-liveness]",
+          "  pnpm domains sweep --fast   # Namecheap bulk: availability+premium+price, ~10-50x faster (no liveness/expiry)",
           "  pnpm domains verify [--status=available] [--tlds=..] [--concurrency=N] [--delay=ms]",
           "  pnpm domains price [--tlds=..] [--singular|--plural] [--len=4-5] [--limit=N]  # full pass if no --limit",
           "",
