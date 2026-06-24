@@ -93,6 +93,10 @@ const PLURAL_WORDS = (words as string[]).filter((w) => {
 const PLURAL_SET = new Set(PLURAL_WORDS);
 const SINGULAR_WORDS = (words as string[]).filter((w) => !PLURAL_SET.has(w));
 
+// Per-word plural test that works on ANY word (curated or imported corpus):
+// it's plural if singularizing changes it (keys->key, lights->light).
+const isPluralWord = (w: string) => singularize(w) !== w;
+
 function parseForm(flags: Record<string, string | boolean>): "singular" | "plural" | undefined {
   if (flags.plural === true || flags.form === "plural") return "plural";
   if (flags.singular === true || flags.form === "singular") return "singular";
@@ -120,16 +124,31 @@ function parseLen(flags: Record<string, string | boolean>): { min?: number; max?
   return { min, max };
 }
 
+// Word source for sweeps: --words-file=<json array> overrides the bundled list
+// (used to sweep a custom corpus into its own --db).
+function resolveWords(flags: Record<string, string | boolean>): string[] {
+  const wf = flags["words-file"];
+  if (typeof wf === "string") return JSON.parse(readFileSync(wf, "utf8")) as string[];
+  return words as string[];
+}
+
 // The word-IN filter implied by --singular/--plural + --len (undefined = no filter).
-function wordFilterFromFlags(flags: Record<string, string | boolean>): string[] | undefined {
+// Word-IN filter for --curated only (restrict to the bundled curated 2.5k).
+// Form (--singular/--plural) and --len are applied PER-ROW in the query so they
+// work on any word, including imported corpus words. Returns undefined = no IN.
+function curatedFilter(flags: Record<string, string | boolean>): string[] | undefined {
+  return flags.curated === true ? (words as string[]) : undefined;
+}
+
+// Per-row form + length predicate (works on any word).
+function rowMatchesFormLen(flags: Record<string, string | boolean>, word: string): boolean {
   const form = parseForm(flags);
+  if (form === "plural" && !isPluralWord(word)) return false;
+  if (form === "singular" && isPluralWord(word)) return false;
   const { min, max } = parseLen(flags);
-  if (!form && min === undefined && max === undefined) return undefined;
-  const base = formWords(form) ?? (words as string[]);
-  const pool = base.filter(
-    (w) => (min === undefined || w.length >= min) && (max === undefined || w.length <= max),
-  );
-  return pool.length ? pool : [" "]; // sentinel matches nothing
+  if (min !== undefined && word.length < min) return false;
+  if (max !== undefined && word.length > max) return false;
+  return true;
 }
 
 // ---- quality scoring ------------------------------------------------------
@@ -156,7 +175,9 @@ const TLD_TIER: Record<string, number> = {
 const tldTier = (tld: string): number => TLD_TIER[tld] ?? 45;
 
 function qualityScore(row: DomainRow): number {
-  const idx = WORD_RANK.get(row.word) ?? TOTAL_WORDS;
+  // Words not in the curated rank list (e.g. an imported corpus) get a neutral
+  // mid score so they're ranked by TLD/margin/niche, not dumped at the bottom.
+  const idx = WORD_RANK.get(row.word) ?? TOTAL_WORDS * 0.82;
   const wordScore = 100 * (1 - idx / TOTAL_WORDS); // 100 = most common word
   return Math.round(wordScore * 0.55 + tldTier(row.tld) * 0.45);
 }
@@ -316,7 +337,7 @@ async function cmdSweepFast(flags: Record<string, string | boolean>) {
   const dbPath = (flags.db as string) || DEFAULT_DB;
   const tlds = tldList(flags);
   const maxAttempts = Number(flags.retries) || 3;
-  const wordLimit = flags.words ? Number(flags.words) : (words as string[]).length;
+  const wordLimit = flags.words ? Number(flags.words) : resolveWords(flags).length;
 
   const ncBase = namecheapCredsFromEnv();
   if (!ncBase) return fail("--fast needs Namecheap creds in .env (NAMECHEAP_API_USER/API_KEY/USERNAME).");
@@ -331,7 +352,7 @@ async function cmdSweepFast(flags: Record<string, string | boolean>) {
   const basePrices = await porkbunTldPrices().catch(() => new Map<string, number>());
 
   const store = new Store(dbPath);
-  const wordSet = (words as string[]).slice(0, wordLimit);
+  const wordSet = resolveWords(flags).slice(0, wordLimit);
   const added = store.seed(wordSet, tlds);
   const total = store.countPending(tlds, maxAttempts);
   console.log(
@@ -414,11 +435,11 @@ async function cmdSweep(flags: Record<string, string | boolean>) {
   const liveness = flags["no-liveness"] !== true;
   const maxAttempts = Number(flags.retries) || 3;
   const delay = Number(flags.delay) || 0;
-  const wordLimit = flags.words ? Number(flags.words) : (words as string[]).length;
+  const wordLimit = flags.words ? Number(flags.words) : resolveWords(flags).length;
   const batch = Number(flags.batch) || 300;
 
   const store = new Store(dbPath);
-  const wordSet = (words as string[]).slice(0, wordLimit);
+  const wordSet = resolveWords(flags).slice(0, wordLimit);
   const added = store.seed(wordSet, tlds);
   const total = wordSet.length * tlds.length;
 
@@ -541,7 +562,7 @@ async function runPricing(
   flags: Record<string, string | boolean>,
 ): Promise<void> {
   const tlds = parseTlds(flags);
-  const words_ = wordFilterFromFlags(flags);
+  const words_ = curatedFilter(flags);
   const limit = flags.limit ? Number(flags.limit) : undefined; // undefined = all
 
   let rows = store.unpricedAvailable(tlds, words_);
@@ -662,20 +683,26 @@ function cmdSearch(positional: string[], flags: Record<string, string | boolean>
     flags.sort === "commercial" ? "commercial" : flags.sort === "quality" || flags.best === true ? "quality" : null;
   const scoreFn = sortMode === "commercial" ? commercialScore : qualityScore;
   const byScore = sortMode !== null;
+  const form = parseForm(flags);
+  const { min: minLen, max: maxLen } = parseLen(flags);
+  const postFilter = form !== undefined || minLen !== undefined || maxLen !== undefined;
   const limit = Number(flags.limit) || (byScore ? 50 : 500);
+  const page = Math.max(1, Number(flags.page) || 1);
+  const offset = flags.offset !== undefined ? Number(flags.offset) : (page - 1) * limit;
 
   let rows = store.search(term, {
     tlds,
     status,
     noPremium,
     maxPrice,
-    limit: byScore ? 100_000 : limit,
+    limit: byScore || postFilter ? 100_000 : offset + limit,
   });
-  if (byScore) {
-    rows = rows.sort((a, b) => scoreFn(b) - scoreFn(a)).slice(0, limit);
-  }
+  if (postFilter) rows = rows.filter((r) => rowMatchesFormLen(flags, r.word));
+  if (byScore) rows = rows.sort((a, b) => scoreFn(b) - scoreFn(a));
+  rows = rows.slice(offset, offset + limit);
 
-  const scopeBits = [tlds?.join(", "), status, sortMode ? `by ${sortMode}` : undefined].filter(Boolean);
+  const formLabel = [form, postFilter && (minLen !== undefined || maxLen !== undefined) ? "len" : undefined].filter(Boolean);
+  const scopeBits = [tlds?.join(", "), status, ...formLabel, sortMode ? `by ${sortMode}` : undefined].filter(Boolean);
   const scope = scopeBits.length ? C.dim(` [${scopeBits.join(" · ")}]`) : "";
   console.log(C.bold(`\n${rows.length} matching “${term}”:`) + scope);
   for (const r of rows) {
@@ -692,7 +719,9 @@ function cmdQuery(kind: "available" | "candidates" | "dropping" | "stats", flags
   const { min: minLen, max: maxLen } = parseLen(flags);
   const lengthActive = minLen !== undefined || maxLen !== undefined;
 
-  const words_ = wordFilterFromFlags(flags);
+  // Default to the curated/quality words (clean); --all opens it to the full
+  // imported corpus (more options, more noise). Form/length are per-row.
+  const words_ = flags.all === true ? undefined : (words as string[]);
   const noPremium = flags["no-premium"] === true;
   const maxPrice = flags["max-price"] ? Number(flags["max-price"]) : undefined;
   const store = new Store(dbPath);
@@ -704,15 +733,24 @@ function cmdQuery(kind: "available" | "candidates" | "dropping" | "stats", flags
   const scoreFn = sortMode === "commercial" ? commercialScore : qualityScore;
   const byScore = sortMode !== null;
   const limit = Number(flags.limit) || (byScore ? 50 : 500);
-  const fetchN = byScore ? 100_000 : limit;
+  // Pagination: --page=2 (1-based) or --offset=N skips ahead.
+  const page = Math.max(1, Number(flags.page) || 1);
+  const offset = flags.offset !== undefined ? Number(flags.offset) : (page - 1) * limit;
+  // Form/length are per-row filters now, so fetch broadly and trim in JS.
+  const postFilter = form !== undefined || lengthActive;
+  const fetchN = byScore || postFilter ? 100_000 : offset + limit;
 
   const lenLabel = lengthActive ? `${minLen ?? 1}-${maxLen ?? "∞"} chars` : undefined;
   const sortLabel = sortMode ? `by ${sortMode}` : undefined;
-  const scopeBits = [tlds?.join(", "), form, lenLabel, sortLabel].filter(Boolean);
+  const pageLabel = offset > 0 ? `page ${page}` : undefined;
+  const scopeBits = [tlds?.join(", "), form, lenLabel, flags.all === true ? "all" : "curated", sortLabel, pageLabel].filter(Boolean);
   const scope = scopeBits.length ? C.dim(` [${scopeBits.join(" · ")}]`) : "";
 
-  const trim = (rows: DomainRow[]): DomainRow[] =>
-    byScore ? [...rows].sort((a, b) => scoreFn(b) - scoreFn(a)).slice(0, limit) : rows;
+  const trim = (rows: DomainRow[]): DomainRow[] => {
+    let out = postFilter ? rows.filter((r) => rowMatchesFormLen(flags, r.word)) : rows;
+    if (byScore) out = [...out].sort((a, b) => scoreFn(b) - scoreFn(a));
+    return out.slice(offset, offset + limit);
+  };
 
   if (kind === "stats") {
     const sc = store.statusCounts(tlds, words_);
@@ -785,6 +823,8 @@ async function main() {
           "  --sort=quality ranks by word commonness × TLD desirability (best first)",
           "  --sort=commercial ranks free-to-reg flip value (cheap + desirable + niche/short; premium penalised)",
           "  --len=4-5 (or --min-len / --max-len) filters by word length",
+          "  default = curated 2.5k quality words; add --all to include the wider imported corpus",
+          "  --page=2 (or --offset=N) paginates results (use with --limit)",
           "  price = registrar pricing (Namecheap bulk + .md/.so flat): premium flag + price, fixes false 'available'",
           "",
           `  default TLDs: ${PRIORITY_TLDS.join(", ")}`,
