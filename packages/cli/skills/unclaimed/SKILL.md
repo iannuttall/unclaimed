@@ -9,6 +9,8 @@ Use `unclaimed` for single words only. Prefer a focused check before starting a 
 
 Always use an explicit headless command in agent workflows. Do not launch bare `unclaimed`; that form is the interactive interface for humans in a TTY.
 
+The human interface can backfill or recheck its local database and opens selected available names at Porkbun or Netim with `b`. Agents should keep using the explicit commands below and return registrar links without opening a browser unless the user asks.
+
 ## Choose the command
 
 - Check one word across TLDs: `unclaimed check orbit --tlds io,ai,dev`

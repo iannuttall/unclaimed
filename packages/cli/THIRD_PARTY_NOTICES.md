@@ -1,6 +1,6 @@
 # Third-party notices
 
-The interactive terminal UI is adapted from the visual structure and Ink components in [Yoinks](https://github.com/pablostanley/yoinks).
+The interactive terminal UI and light/dark README logo treatment are adapted from the visual structure and Ink components in [Yoinks](https://github.com/pablostanley/yoinks).
 
 Yoinks is licensed under the MIT License:
 

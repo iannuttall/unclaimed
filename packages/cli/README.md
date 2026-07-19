@@ -1,13 +1,22 @@
 # unclaimed
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/iannuttall/unclaimed/main/assets/logo-dark.svg">
+  <img src="https://raw.githubusercontent.com/iannuttall/unclaimed/main/assets/logo-light.svg" alt="unclaimed" width="456">
+</picture>
+
 Find available single-word domains from your terminal.
 
 ```sh
-npm install --global unclaimed
+npm i -g unclaimed
 unclaimed
 ```
 
-The bare command opens the interactive interface in a terminal. Press Tab to switch between checking one word and browsing saved available names. The browse view has search, TLD, form, length, premium, price, corpus, and sort filters. Explicit commands and flags stay headless for agents, scripts, and CI:
+The bare command opens the interactive interface in a terminal. Tab cycles through checking one word, browsing saved available names, and updating the local database. First run can backfill new rows; later runs can resume unresolved checks or recheck saved results. The browse view has search, TLD, form, length, premium, price, corpus, and sort filters.
+
+Press `b` on a selected available domain to open it at a registrar. Unclaimed uses Porkbun where supported, prefers Netim for `.md` and `.so`, and falls back to Netim for other TLDs.
+
+Explicit commands and flags stay headless for agents, scripts, and CI:
 
 ```sh
 unclaimed check orbit --tlds io,ai,dev

@@ -1,5 +1,10 @@
 # unclaimed
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+  <img src="assets/logo-light.svg" alt="unclaimed" width="456">
+</picture>
+
 Find available single-word domains from your terminal.
 
 Unclaimed checks RDAP first, falls back to WHOIS, and stores results in a local SQLite database. It ships with 11,822 common and brandable English words, accepts your own word lists, and can search any delegated TLD.
@@ -9,7 +14,7 @@ Unclaimed checks RDAP first, falls back to WHOIS, and stores results in a local 
 Unclaimed needs Node.js 24 or newer because it uses the built-in SQLite module.
 
 ```sh
-npm install --global unclaimed
+npm i -g unclaimed
 ```
 
 You can also run it without installing:
@@ -28,7 +33,9 @@ unclaimed
 
 Type one word and Unclaimed checks it across your configured TLDs. Available results include saved exact prices when known or a `~$` standard TLD price as a fallback. Use the arrow keys to browse results, Enter to check another word, Escape to go back, and Ctrl-T to change the theme.
 
-Press Tab to browse saved available names. Press `f` for search plus filters covering TLD, singular or plural form, word length, premium status, maximum price, curated words, and sorting by newest, name, quality, commercial value, price, or length. The view paginates the local database and shows saved pricing when present. Live checks from the interface are saved automatically.
+Tab cycles through checking a word, browsing saved names, and updating the local database. An empty database opens on the setup view. Choose a resumable backfill, recheck the configured TLDs, or recheck every saved row including imported words and custom TLDs. Unclaimed shows the request scope before it starts and saves each result as it finishes.
+
+In the browse view press `f` for search plus filters covering TLD, singular or plural form, word length, premium status, maximum price, curated words, and sorting by newest, name, quality, commercial value, price, or length. Press `b` on a selected available domain to open it at a registrar. Porkbun is used when its live pricing feed lists the TLD. Netim handles `.md`, `.so`, and the fallback route for other TLDs.
 
 The interface only starts when both input and output are attached to a terminal. Commands, flags, pipes, agents, and CI stay headless:
 
