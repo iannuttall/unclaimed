@@ -15,7 +15,7 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "unclaimed": "./dist/cli.js"
+    "unclaimed": "dist/cli.js"
   },
   "files": [
     "dist",
