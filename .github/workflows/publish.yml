@@ -1,29 +1,113 @@
 name: Publish
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
+    paths:
+      - "packages/cli/package.json"
+      - ".github/workflows/publish.yml"
+  workflow_dispatch:
+    inputs:
+      dryRun:
+        description: "Run npm publish without publishing"
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   npm:
     runs-on: ubuntu-latest
-    environment: npm
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: false
+      - uses: pnpm/action-setup@v6
         with:
           version: 11.1.1
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: pnpm
-          registry-url: https://registry.npmjs.org
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+      - name: Use an npm CLI with trusted publishing support
+        run: npm install --global npm@11.10.0
+      - name: Check release version
+        id: release
+        shell: bash
+        run: |
+          version="$(node --print "require('./packages/cli/package.json').version")"
+          tag="v${version}"
+
+          if npm view unclaimed name >/dev/null 2>&1; then
+            registered="true"
+          else
+            registered="false"
+          fi
+
+          if npm view "unclaimed@${version}" version >/dev/null 2>&1; then
+            published="true"
+          else
+            published="false"
+          fi
+
+          if git rev-parse --verify --quiet "refs/tags/${tag}" >/dev/null; then
+            tagged="true"
+          else
+            tagged="false"
+          fi
+
+          if [[ "${published}" == "false" && "${tagged}" == "true" ]]; then
+            echo "${tag} exists, but unclaimed@${version} is not published." >&2
+            exit 1
+          fi
+
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "registered=${registered}" >> "$GITHUB_OUTPUT"
+          echo "published=${published}" >> "$GITHUB_OUTPUT"
+          echo "tagged=${tagged}" >> "$GITHUB_OUTPUT"
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm pack:dry-run
-      - run: npm publish --access public --provenance
+      - name: Publish dry run
+        if: github.event_name == 'workflow_dispatch' && inputs.dryRun == 'true'
+        run: npm publish --dry-run
         working-directory: packages/cli
+      - name: Publish to npm
+        if: steps.release.outputs.registered == 'true' && steps.release.outputs.published == 'false' && (github.event_name == 'push' || inputs.dryRun == 'false')
+        run: npm publish --access public --provenance
+        working-directory: packages/cli
+      - name: Tag release version
+        if: steps.release.outputs.registered == 'true' && steps.release.outputs.tagged == 'false' && (steps.release.outputs.published == 'true' || (steps.release.outputs.published == 'false' && (github.event_name == 'push' || inputs.dryRun == 'false')))
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag --annotate "$RELEASE_TAG" --message "Release unclaimed@$RELEASE_VERSION"
+          git push origin "$RELEASE_TAG"
+      - name: Report bootstrap requirement
+        if: steps.release.outputs.registered == 'false'
+        run: echo "Publish unclaimed once from a trusted local npm session, then configure publish.yml as its trusted publisher."
+      - name: Report existing release
+        if: steps.release.outputs.published == 'true'
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: echo "unclaimed@$RELEASE_VERSION is already published."

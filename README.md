@@ -238,13 +238,24 @@ The optional Worker is not required by the CLI or npm package. Its D1 binding mu
 
 ## Publishing
 
-The package is published from `packages/cli` through the release workflow. Before the first release:
+The first publish has to come from a local npm session so the package exists before trusted publishing is configured:
 
-1. Create `iannuttall/unclaimed` on GitHub and push this repository.
-2. Configure `unclaimed` on npm to trust the GitHub Actions release workflow.
-3. Update the package version and create a GitHub release.
+```sh
+pnpm check
+pnpm pack:dry-run
+cd packages/cli
+npm publish --access public
+```
 
-The workflow builds, tests, packs, and publishes with npm provenance. No website or project domain is required.
+Then open the `unclaimed` package settings on npm and add a GitHub Actions trusted publisher with these values:
+
+- Organization or user: `iannuttall`
+- Repository: `unclaimed`
+- Workflow filename: `publish.yml`
+- Environment: leave blank
+- Allowed action: `npm publish`
+
+The workflow follows later version changes on `main`, runs the full checks, publishes through OIDC, and tags the version. It skips publishing cleanly until the initial package exists. Use the manual workflow with `dryRun: true` to test the release path without publishing.
 
 ## License
 
