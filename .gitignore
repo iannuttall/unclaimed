@@ -13,6 +13,8 @@ scripts/data/rec-batches/
 scripts/data/rec-keep/
 scripts/data/heuristic-words.detail.json
 data/
+!packages/core/src/data/
+!packages/core/src/data/*.json
 .env
 .dev.vars
 scripts/data/exp-batches/
