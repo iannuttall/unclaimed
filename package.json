@@ -13,7 +13,6 @@
     "check": "pnpm build && pnpm typecheck && pnpm test && pnpm lint",
     "clean": "turbo run clean",
     "dev": "UNCLAIMED_DB=./data/domains.db tsx --tsconfig packages/cli/tsconfig.json packages/cli/src/cli.ts",
-    "domains": "UNCLAIMED_DB=./data/domains.db tsx --tsconfig packages/cli/tsconfig.json packages/cli/src/cli.ts",
     "lint": "biome check . && turbo run lint",
     "lint:fix": "biome check . --write",
     "pack:dry-run": "pnpm --filter unclaimed pack --dry-run",

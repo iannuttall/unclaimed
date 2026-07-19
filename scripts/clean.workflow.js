@@ -4,7 +4,7 @@ export const meta = {
   phases: [{ title: 'Clean', detail: '22 agents x 300 words, remove named-entity leaks' }],
 }
 
-const DIR = '/Users/iannuttall/dev/cli/domains/scripts/data/clean-batches'
+const DIR = '/Users/iannuttall/dev/cli/unclaimed/scripts/data/clean-batches'
 const N = 22
 
 const PROMPT = `Below is a JSON array of candidate single-word names for software products / apps / startups (used as domains like WORD.io, WORD.md). Most are good and already vetted. Your ONLY job is to REMOVE the leaks that slipped through. Keep everything else.

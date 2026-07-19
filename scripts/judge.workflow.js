@@ -7,7 +7,7 @@ export const meta = {
   ],
 }
 
-const DIR = '/Users/iannuttall/dev/cli/domains/scripts/data/judge-batches'
+const DIR = '/Users/iannuttall/dev/cli/unclaimed/scripts/data/judge-batches'
 const N_BATCHES = 82
 
 const RUBRIC = `You are judging single English words as potential names for a modern software product, app, startup, or developer tool (used as a domain like WORD.md, WORD.io, WORD.sh, WORD.ai). For EVERY word decide KEEP or REJECT. Every word must appear in exactly one of the two output arrays.
