@@ -1,4 +1,7 @@
 node_modules/
+dist/
+.turbo/
+.astro/
 .wrangler/
 *.log
 scripts/cache/
@@ -11,6 +14,7 @@ scripts/data/rec-keep/
 scripts/data/heuristic-words.detail.json
 data/
 .env
+.dev.vars
 scripts/data/exp-batches/
 scripts/data/exp-keep/
 scripts/data/tech-batches/

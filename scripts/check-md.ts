@@ -1,7 +1,7 @@
 // One-off: check a list of markdown-filename words as <word>.md.
 // Run: pnpm exec tsx scripts/check-md.ts
-import { checkDomain, setWhoisTransport } from "../src/resolvers";
-import { whoisQuery } from "../src/whois-node";
+import { checkDomain, setWhoisTransport } from "../packages/core/src/resolvers";
+import { whoisQuery } from "../packages/cli/src/whois-node";
 setWhoisTransport(whoisQuery);
 
 const CLASSIC = [

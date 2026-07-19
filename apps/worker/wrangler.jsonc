@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "unclaimed-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-18",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "unclaimed",
+      "database_id": "REPLACE_WITH_REAL_ID_BEFORE_DEPLOY",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  }
+}

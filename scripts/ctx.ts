@@ -1,6 +1,6 @@
-import { checkDomain, setWhoisTransport } from "../src/resolvers";
-import { whoisQuery } from "../src/whois-node";
-import { namecheapCredsFromEnv, detectClientIp, namecheapBulkCheck, porkbunTldPrices } from "../src/pricing";
+import { checkDomain, setWhoisTransport } from "../packages/core/src/resolvers";
+import { whoisQuery } from "../packages/cli/src/whois-node";
+import { namecheapCredsFromEnv, detectClientIp, namecheapBulkCheck, porkbunTldPrices } from "../packages/cli/src/pricing";
 import { readFileSync, existsSync } from "node:fs";
 setWhoisTransport(whoisQuery);
 for (const l of existsSync(".env") ? readFileSync(".env","utf8").split("\n") : []) { const m=l.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$/); if(m&&process.env[m[1]]===undefined)process.env[m[1]]=m[2].replace(/^["']|["']$/g,""); }

@@ -1,13 +1,13 @@
 // One-off name hunt for two projects. Namecheap bulk for gTLDs (avail+price),
 // resolver for .md. Run: pnpm exec tsx scripts/hunt.ts
-import { checkDomain, setWhoisTransport } from "../src/resolvers";
-import { whoisQuery } from "../src/whois-node";
+import { checkDomain, setWhoisTransport } from "../packages/core/src/resolvers";
+import { whoisQuery } from "../packages/cli/src/whois-node";
 import {
   namecheapCredsFromEnv,
   detectClientIp,
   namecheapBulkCheck,
   porkbunTldPrices,
-} from "../src/pricing";
+} from "../packages/cli/src/pricing";
 import { readFileSync, existsSync } from "node:fs";
 setWhoisTransport(whoisQuery);
 for (const line of existsSync(".env") ? readFileSync(".env", "utf8").split("\n") : []) {

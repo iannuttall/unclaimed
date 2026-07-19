@@ -28,13 +28,13 @@ const ordered = [...kept]
   .sort((a, b) => rankOf.get(a) - rankOf.get(b) || a.localeCompare(b));
 
 writeFileSync(
-  join(DATA, "..", "..", "src", "words.json"),
+  join(DATA, "..", "..", "packages", "core", "src", "data", "words.json"),
   JSON.stringify(ordered),
 );
 writeFileSync(join(DATA, "curated-words.json"), JSON.stringify(ordered, null, 0));
 
 console.log(`merged ${files} batch files`);
 console.log(`curated list: ${ordered.length} words`);
-console.log(`written: src/words.json and scripts/data/curated-words.json`);
+console.log(`written: packages/core/src/data/words.json and scripts/data/curated-words.json`);
 console.log("\nsample (most common 40):\n  " + ordered.slice(0, 40).join(", "));
 console.log("\nsample (last 40):\n  " + ordered.slice(-40).join(", "));

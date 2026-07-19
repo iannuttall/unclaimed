@@ -1,0 +1,4 @@
+interface:
+  display_name: "Unclaimed"
+  short_description: "Find available single-word domains from the CLI"
+  default_prompt: "Use $unclaimed to check and refresh single-word domain availability."

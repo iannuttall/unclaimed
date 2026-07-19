@@ -1,12 +1,8 @@
+packages:
+  - apps/*
+  - packages/*
+
 allowBuilds:
-  esbuild: set this to true or false
-  sharp: set this to true or false
-  workerd: set this to true or false
-# wrangler's native binaries (workerd, esbuild) ship via platform-specific
-# optional deps, so their postinstall build scripts are not required. Approve
-# them anyway to silence the warning, and don't gate `pnpm run` on the check.
-onlyBuiltDependencies:
-  - esbuild
-  - workerd
-  - sharp
-verifyDepsBeforeRun: false
+  esbuild: true
+  sharp: true
+  workerd: true

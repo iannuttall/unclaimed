@@ -1,4 +1,4 @@
-// Expand src/words.json toward a target size without losing quality.
+// Expand packages/core/src/data/words.json toward a target size without losing quality.
 //   final = current curated list  ∪  vetted tech/AI words  ∪  top recovered words
 // Recovered = broadening-pass survivors from the over-cut pool, added most-common
 // first up to TARGET. Tech words are all kept (user's niche priority).
@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA = join(__dirname, "data");
-const SRC = join(__dirname, "..", "src", "words.json");
+const SRC = join(__dirname, "..", "packages", "core", "src", "data", "words.json");
 const TARGET = Number(process.argv[2] || 2400);
 
 const readAll = (dir) => {
@@ -61,5 +61,5 @@ writeFileSync(join(DATA, "final-words.json"), JSON.stringify(ordered, null, 0));
 console.log(`base (was):     ${baseN}`);
 console.log(`+ vetted tech:  ${tech.length}`);
 console.log(`+ recovered:    ${filled} (of ${recovered.length} available, capped at ${TARGET})`);
-console.log(`final:          ${ordered.length} -> src/words.json`);
+console.log(`final:          ${ordered.length} -> packages/core/src/data/words.json`);
 console.log(`\nsample new tech: ${tech.slice(0, 25).join(", ")}`);

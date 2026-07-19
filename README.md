@@ -1,230 +1,244 @@
-# domain-check
+# unclaimed
 
-Checks domain availability across **any** TLD using RDAP where it exists and
-falling back to raw WHOIS (over TCP) where it doesn't — so new gTLDs (`.agent`)
-and RDAP-less ccTLDs (`.md`) are all covered. For registered names it also reads
-the **expiry date**, estimates when the name could **drop**, and probes whether a
-real **site** exists (cold-outreach leads).
+Find available single-word domains from your terminal.
 
-Runs two ways from one codebase:
+Unclaimed checks RDAP first, falls back to WHOIS, and stores results in a local SQLite database. It ships with 11,822 common and brandable English words, accepts your own word lists, and can search any delegated TLD.
 
-- **Local CLI** (no deploy, no Cloudflare) — the quickest way to use it.
-- **Cloudflare Worker** — if you want it as an always-on HTTP API + cron.
+## Install
 
-The only runtime difference is the WHOIS transport (`node:net` vs
-`cloudflare:sockets`), injected at the entry point; everything else is shared.
+Unclaimed needs Node.js 24 or newer because it uses the built-in SQLite module.
 
-## CLI (local, no deploy)
-
-```bash
-pnpm install
-pnpm domains check prompt.io
-pnpm domains check prompt --tlds=io,ai,dev,run,now   # one word across TLDs
-pnpm domains sweep                                   # curated list × priority TLDs
-pnpm domains available                               # what's free
-pnpm domains candidates                              # registered but no real site
-pnpm domains dropping                                # registered, soonest drop first
-pnpm domains stats
+```sh
+npm install --global unclaimed
 ```
 
-`sweep` checks the curated word list (`src/words.json`) across a priority TLD set
-and stores every result in a local SQLite db (`data/domains.db`, via Node's
-built-in `node:sqlite`). It's resumable (re-run to continue / retry `unknown`s)
-and the query commands read straight from that db. Flags: `--tlds=`, `--words=N`,
-`--concurrency=`, `--retries=`, `--no-liveness`, `--limit=`.
+You can also run it without installing:
 
-## Why this approach
-
-- **RDAP** is clean JSON but incomplete: only gTLDs in the IANA bootstrap, plus a
-  few ccTLDs with direct endpoints. New gTLDs lag; most ccTLDs never join.
-- **WHOIS** exists for every delegated TLD. Workers can reach it over TCP port 43
-  via the `connect()` socket API, so it works as the universal fallback at $0.
-- Status is only ever reported `available` from an authoritative `not found`.
-  Anything ambiguous (429, 5xx, unknown server) returns `unknown` — never a
-  false "available".
-
-## Resolution order (per domain)
-
-1. Direct registry RDAP for known ccTLDs (`io`, `so`, …) — `resolvers.ts → RDAP_OVERRIDES`
-2. `rdap.org`, but only if the TLD is in the IANA bootstrap (otherwise its 404 lies)
-3. WHOIS over TCP — `whois.nic.<tld>` by default, with overrides for odd registries
-
-A RDAP `unknown` (rate-limited / down) automatically falls through to WHOIS.
-
-## Run / deploy
-
-```bash
-pnpm install
-pnpm dev           # local: http://localhost:8787
-pnpm deploy        # ship to Cloudflare
+```sh
+npx unclaimed check orbit --tlds io,ai,dev
 ```
 
-## Usage
+## Interactive mode
 
-```
-# single domain
-/?domain=prompt.md
+Run the bare command in a terminal to open the interactive interface:
 
-# one word across many TLDs
-/?name=prompt&tlds=md,io,so,agent,dev,app,ai,xyz
+```sh
+unclaimed
 ```
 
-Response:
+Type one word and Unclaimed checks it across your configured TLDs. Available results include saved exact prices when known or a `~$` standard TLD price as a fallback. Use the arrow keys to browse results, Enter to check another word, Escape to go back, and Ctrl-T to change the theme.
+
+Press Tab to browse saved available names. Press `f` for search plus filters covering TLD, singular or plural form, word length, premium status, maximum price, curated words, and sorting by newest, name, quality, commercial value, price, or length. The view paginates the local database and shows saved pricing when present. Live checks from the interface are saved automatically.
+
+The interface only starts when both input and output are attached to a terminal. Commands, flags, pipes, agents, and CI stay headless:
+
+```sh
+unclaimed check orbit --tlds io,ai,dev
+unclaimed stats --tlds dev
+unclaimed available --limit 20
+```
+
+## Check a word
+
+The main input is one word. Pass a comma-separated set of TLDs to check it across several registries:
+
+```sh
+unclaimed check orbit --tlds io,ai,dev,app
+```
+
+Or check one complete domain:
+
+```sh
+unclaimed check orbit.dev
+```
+
+Results are one of:
+
+- `available`: the registry indicates that the domain is not registered
+- `registered`: the registry returned a record or reserved-name signal
+- `unknown`: the lookup timed out, was rate-limited, or could not be classified
+
+Treat availability as a strong lead, not a purchase guarantee. Registrars can still reserve a name or charge a premium price.
+
+## Scan the word list
+
+`sweep` seeds the bundled corpus and checks rows that are new or unresolved. Confident old results are skipped, so you can stop and resume it safely.
+
+```sh
+unclaimed sweep --tlds io,ai,dev
+unclaimed available --sort commercial --limit 50
+unclaimed stats
+```
+
+Useful filters:
+
+```sh
+unclaimed available --tlds dev,app --singular --max-len 8
+unclaimed available --no-premium --max-price 20 --sort quality
+unclaimed search orbit --status available
+unclaimed candidates --limit 50
+unclaimed dropping --limit 50
+```
+
+Pass your own JSON array or newline-separated word list with `--words-file`:
+
+```sh
+unclaimed sweep --words-file ./words.txt --tlds design,tools
+```
+
+## Refresh everything
+
+`sweep` does not recheck confident results. `refresh` does.
+
+Recheck the bundled corpus on the default TLDs:
+
+```sh
+unclaimed refresh
+```
+
+Recheck every row already in the database, including custom TLDs and imported words:
+
+```sh
+unclaimed refresh --all
+```
+
+This is the full update command. It can make hundreds of thousands of live registry requests, so expect it to take time. Narrow it when needed:
+
+```sh
+unclaimed refresh --tlds io,ai --concurrency 12
+```
+
+Liveness checks are off during refresh because fetching every registered website is much slower. Add `--liveness` when you need parked-site or cold-outreach data.
+
+### Fast registrar refresh
+
+Namecheap can check up to 50 domains per request. Add these values to `.env`:
+
+```dotenv
+NAMECHEAP_API_USER=your-user
+NAMECHEAP_API_KEY=your-key
+NAMECHEAP_USERNAME=your-user
+# Optional when automatic IP detection is unsuitable
+NAMECHEAP_CLIENT_IP=203.0.113.10
+```
+
+Then run:
+
+```sh
+unclaimed refresh --all --fast
+```
+
+Your current client IP must be allowed in Namecheap. TLDs that Namecheap does not sell fall back to RDAP or WHOIS. Fast results also include registrar availability and premium pricing when returned.
+
+## Add any TLD
+
+You do not need a code change for most TLDs:
+
+```sh
+unclaimed check orbit --tlds co.uk,design,tools
+unclaimed sweep --tlds-file ./tlds.txt
+```
+
+`--tlds-file` accepts a JSON array or comma, space, or newline-separated text.
+
+Unclaimed loads repeat settings from the JSON config shown by `unclaimed config`. The default location is `~/.config/unclaimed/config.json`, or `$XDG_CONFIG_HOME/unclaimed/config.json` when set.
 
 ```json
-[
-  {
-    "domain": "prompt.md",
-    "tld": "md",
-    "status": "registered",
-    "source": "whois",
-    "expiry": "2027-05-17T00:00:00.000Z",
-    "estimatedAvailable": "2027-08-05T00:00:00.000Z",
-    "checkedAt": "2026-06-18T19:58:07.158Z"
+{
+  "tlds": ["io", "ai", "co.uk"],
+  "database": "/absolute/path/to/domains.db",
+  "whois": {
+    "example": "whois.registry.example"
   },
-  {
-    "domain": "prompt.agent",
-    "tld": "agent",
-    "status": "available",
-    "source": "whois",
-    "expiry": null,
-    "estimatedAvailable": null,
-    "checkedAt": "2026-06-18T19:58:07.158Z"
+  "rdap": {
+    "example": "https://rdap.registry.example/domain/{domain}"
+  },
+  "availablePatterns": {
+    "example": ["domain is free"]
+  },
+  "whoisPaceMs": {
+    "whois.registry.example": 1500
   }
-]
+}
 ```
 
-- `status` is one of `available | registered | unknown`.
-- `source` is `rdap | whois | cache`.
-- `expiry` is the registry expiry date (ISO) when registered and exposed.
-- `estimatedAvailable` is a best-effort "could be free by" date: `expiry + 80d`
-  (auto-renew grace ≤45 + redemption 30 + pending-delete 5). It's "if abandoned",
-  not "will be free" — most names get renewed. `null` unless registered with a
-  known expiry.
+For unknown TLDs, Unclaimed asks IANA for the authoritative WHOIS server and caches the answer. Use config overrides for registries with unusual endpoints, response wording, or rate limits. Only add an availability pattern after inspecting real registry output, since a loose match can create false positives.
 
-### Stability: RDAP vs WHOIS
+## Data and privacy
 
-For a given domain the answer is deterministic, and RDAP and WHOIS agree when
-both can answer. Pin a source to compare:
+The default database is:
 
-```
-/?domain=google.com&source=rdap
-/?domain=google.com&source=whois
-```
+- macOS and Linux: `~/.local/share/unclaimed/domains.db`
+- with XDG configured: `$XDG_DATA_HOME/unclaimed/domains.db`
+- override: `$UNCLAIMED_DB`, config `database`, or `--db <path>`
 
-`unknown` is only ever returned when a source genuinely can't answer (no RDAP for
-the TLD, no WHOIS host, or a rate-limit/timeout) — never a false `available`.
-Confirm agreement across a sample with:
+The database stays on your machine. Checks go directly to registry RDAP and WHOIS services, registrar APIs you configure, and domains themselves when liveness checks are enabled.
 
-```bash
-pnpm dev
-node scripts/compare-sources.mjs
+If you used the old repository-local database, keep using it with:
+
+```sh
+unclaimed stats --db ./data/domains.db
+unclaimed refresh --all --db ./data/domains.db
 ```
 
-## Optional caching
+## Commands
 
-Bind a KV namespace to cache results (6h TTL) and the IANA bootstrap (weekly):
+| Command | What it does |
+| --- | --- |
+| `check <word\|domain>` | Check one word across TLDs or one complete domain |
+| `sweep` | Seed words and check new or unresolved rows |
+| `refresh` | Recheck all rows in the selected scope |
+| `verify` | Recheck rows with one stored status |
+| `price` | Add registrar pricing to available rows |
+| `available` | List domains marked available |
+| `candidates` | List registered domains with no live site |
+| `dropping` | List registered domains by estimated drop date |
+| `search <term>` | Search stored words |
+| `stats` | Show database coverage and status counts |
+| `config` | Show active config and database paths |
 
-```bash
-pnpm wrangler kv namespace create DOMAIN_CACHE
+Run `unclaimed --help` for the compact command reference.
+
+## Agent skill
+
+The npm package includes an agent skill at `skills/unclaimed/SKILL.md`. It teaches agents to choose a focused check, run a full refresh when requested, extend TLD routing, and avoid reporting `unknown` as available.
+
+To use it from this repository, add or symlink [`packages/cli/skills/unclaimed`](packages/cli/skills/unclaimed) to your agent's skills directory.
+
+## Development
+
+This is a pnpm and Turborepo workspace:
+
+```text
+packages/core     registry resolution and bundled words
+packages/cli      npm package, CLI, SQLite store, pricing, and skill
+apps/worker       optional Cloudflare Worker API kept separate from npm
+scripts           reproducible word-corpus tooling
+research          kept research artifacts
 ```
 
-Then uncomment the `[[kv_namespaces]]` block in `wrangler.toml` and paste the id.
-`unknown` results are never cached.
-
-## Tracking premium brandable names
-
-Beyond one-off checks, the Worker can track a curated list of **premium,
-brandable single words** (singular + plural — `prompts`, `console`,
-`opportunity`) across a set of TLDs, re-check them on a cron, and surface:
-
-- `/available` — tracked names that are currently available
-- `/candidates` — names that are **registered but have no real site** (dead DNS
-  or a parking lander) — cold-outreach leads
-- `/dropping` — registered names sorted by **soonest estimated drop**
-  (`expiry + 80d`)
-- `/stats` — coverage + counts
-
-### The word list (two-stage audit)
-
-`src/words.json` is built, not hand-typed, so it's reproducible and tunable:
-
-1. **Heuristic pass** (`pnpm build:words`) — starts from a frequency-ranked
-   English list (Norvig) and WordNet, keeps only **common nouns** (singular +
-   plural), drops rare words, gerunds (`-ing`), past tense (`-ed`), adverbs,
-   adjectives, proper nouns, bad/uncountable plurals. ~333k → ~10k.
-2. **LLM brandability pass** — the survivors are judged against a strict
-   premium-brandability rubric (`scripts/RUBRIC.md`, then a stricter
-   `scripts/RUBRIC2.md`), cutting to the curated set in `src/words.json`.
-
-Re-run stage 1 with `pnpm build:words`; the LLM passes are driven by the batch
-files under `scripts/data/`. The funnel that produced the current list:
-
-```
-~333,000  all English words (frequency list)
-   ~10,000  heuristic pass: common nouns, no -ing/-ed/adverbs/proper nouns
-    ~3,750  LLM pass 1: brandable common nouns (RUBRIC.md)
-    ~1,250  LLM pass 2: premium tier only (RUBRIC2.md)
-   +~110    recovery pass: common words pass 2 over-cut (RUBRIC_RECOVERY.md)
-    ~1,360  final -> src/words.json
+```sh
+corepack enable
+pnpm install
+pnpm unclaimed check orbit --tlds io,ai,dev
+pnpm check
+pnpm pack:dry-run
 ```
 
-`scripts/finalize-words.mjs` also has a small hand-edited `ALWAYS` allowlist for
-obvious premium words the ruthless passes drop (e.g. `opportunity`).
+The repository command uses `./data/domains.db` so `pnpm unclaimed` opens the existing development catalogue. The published package uses the per-user data path described above.
 
-Tune strictness via `FREQ_RANK_LIMIT` in `build-wordlist.mjs` (looser = more
-candidates) and the rubrics. To widen the final list, merge pass 1 instead:
-`node scripts/merge-curated.mjs keep`.
+The optional Worker is not required by the CLI or npm package. Its D1 binding must be configured before deployment.
 
-### Tracking setup (D1)
+## Publishing
 
-```bash
-pnpm wrangler d1 create domains-tracker          # paste the id into wrangler.toml
-pnpm wrangler d1 migrations apply domains-tracker --remote
-pnpm deploy
-```
+The package is published from `packages/cli` through the release workflow. Before the first release:
 
-Edit `TRACKED_TLDS` in `src/tracking.ts` to choose which TLDs to track (the
-default is ~75 brandable / action new gTLDs: `run`, `now`, `app`, `dev`, `ai`,
-`io`, `studio`, `build`, `store`, …). The resolver handles any delegated TLD, so
-adding more just works.
+1. Create `iannuttall/unclaimed` on GitHub and push this repository.
+2. Configure `unclaimed` on npm to trust the GitHub Actions release workflow.
+3. Update the package version and create a GitHub release.
 
-After deploy, **seed once** (100k+ rows is too much for a single cron tick):
+The workflow builds, tests, packs, and publishes with npm provenance. No website or project domain is required.
 
-```
-/seed            # populate word × TLD rows (idempotent), gated by ADMIN_TOKEN
-/run?n=60        # re-check a batch now
-```
+## License
 
-Then the cron (`*/5 * * * *`) re-checks the stalest 60 rows each tick at low
-concurrency (RDAP/WHOIS rate-limit per IP), recording expiry, drop estimates and
-site presence.
-
-**Cycle time:** rows = words × TLDs (≈1,360 × 75 ≈ 102k). At 60 rows / 5 min a
-full re-check takes ~5 days. Go faster by raising the cron `limit` in
-`scheduled()` (registered names also do a liveness fetch, so watch the Workers
-subrequest limit — the paid plan allows 1,000/invocation) or by trimming TLDs.
-
-Local dev uses a local SQLite copy:
-
-```bash
-pnpm wrangler d1 migrations apply domains-tracker --local
-pnpm dev
-curl 'http://localhost:8787/seed'
-curl 'http://localhost:8787/run?n=20'
-curl 'http://localhost:8787/dropping'
-```
-
-## Extending
-
-- **New ccTLD with RDAP** → add to `RDAP_OVERRIDES` in `src/resolvers.ts`.
-- **Registry whose WHOIS host isn't `whois.nic.<tld>`** → add to `WHOIS_OVERRIDES`.
-- **Registry with an odd "not found" phrase** → add a TLD entry to `AVAILABLE_PATTERNS`.
-- Discover the right WHOIS host for any TLD by querying `whois.iana.org`.
-
-## Notes
-
-- Registry RDAP/WHOIS both rate-limit per IP. The Worker caps concurrency at 8
-  and (with KV) caches confident answers. Add backoff if you check large lists.
-- WHOIS parsing is heuristic by nature; the pattern maps cover the common cases.
-  When in doubt the Worker returns `unknown` rather than guessing.
+MIT. The interactive interface is adapted from [Yoinks](https://github.com/pablostanley/yoinks); see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

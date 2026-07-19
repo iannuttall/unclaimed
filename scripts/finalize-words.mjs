@@ -1,5 +1,5 @@
 // Final list = pass-2 premium keepers ∪ recovered words (recovery pass),
-// ordered most-common-first. Writes src/words.json.
+// ordered most-common-first. Writes packages/core/src/data/words.json.
 import { readFileSync, writeFileSync, readdirSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -56,10 +56,10 @@ const ordered = [...final]
   .filter((w) => rankOf.has(w))
   .sort((a, b) => rankOf.get(a) - rankOf.get(b) || a.localeCompare(b));
 
-writeFileSync(join(__dirname, "..", "src", "words.json"), JSON.stringify(ordered));
+writeFileSync(join(__dirname, "..", "packages", "core", "src", "data", "words.json"), JSON.stringify(ordered));
 writeFileSync(join(DATA, "final-words.json"), JSON.stringify(ordered, null, 0));
 
 console.log(`pass-2 keepers: ${before}`);
 console.log(`recovered:      +${recovered}`);
 console.log(`allowlist:      +${allowed}`);
-console.log(`final list:     ${ordered.length} words -> src/words.json`);
+console.log(`final list:     ${ordered.length} words -> packages/core/src/data/words.json`);

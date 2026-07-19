@@ -1,7 +1,7 @@
 // Assemble the final curated word list from the judged pool + recovered words,
 // adding plural forms for nouns only (verbs/adjs make garbage plurals).
 //   node scripts/build-final-words.mjs
-// Writes src/words.json (the curated list used by the CLI by default).
+// Writes packages/core/src/data/words.json (the bundled CLI list).
 import { createRequire } from "node:module";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -92,12 +92,12 @@ const list = [...out]
 
 // diff vs current curated list
 let prev = [];
-try { prev = JSON.parse(readFileSync(join(ROOT, "src", "words.json"), "utf8")); } catch {}
+try { prev = JSON.parse(readFileSync(join(ROOT, "packages", "core", "src", "data", "words.json"), "utf8")); } catch {}
 const prevSet = new Set(prev);
 const added = list.filter((w) => !prevSet.has(w));
 const removed = prev.filter((w) => !out.has(w));
 
-writeFileSync(join(ROOT, "src", "words.json"), JSON.stringify(list));
+writeFileSync(join(ROOT, "packages", "core", "src", "data", "words.json"), JSON.stringify(list));
 console.log(`base singulars: ${base.size}  (judged ${judged.length} + recovered ${recovered.length})`);
-console.log(`final curated list (singular+plural): ${list.length} -> src/words.json`);
+console.log(`final curated list (singular+plural): ${list.length} -> packages/core/src/data/words.json`);
 console.log(`vs previous (${prev.length}): +${added.length} added, -${removed.length} removed`);
