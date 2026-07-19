@@ -29,7 +29,7 @@ export function Shortcuts({
           ) : null}
           <Text color={theme.primary}>{key}</Text>
           <Text color={theme.gray} dimColor={theme.dimSecondary}>
-            {" "}
+            {key === "↵" ? "  " : " "}
             {label}
           </Text>
         </Text>

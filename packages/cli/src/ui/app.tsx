@@ -1,16 +1,17 @@
 import type { CheckResult } from "@unclaimed/core";
-import { checkDomain } from "@unclaimed/core";
+import { checkDomain, words } from "@unclaimed/core";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 import Spinner from "ink-spinner";
 import { useCallback, useRef, useState } from "react";
+import {
+  type DatabaseUpdateMode,
+  type DatabaseUpdateProgress,
+  type DatabaseUpdateSummary,
+  resultUpdate,
+  runDatabaseUpdate,
+} from "../database-update";
 import { FLAT_TLD_PRICES, porkbunTldPrices } from "../pricing";
-import type {
-  AvailableBrowseOptions,
-  AvailableSort,
-  DomainRow,
-  ResultUpdate,
-  Store,
-} from "../store";
+import type { AvailableBrowseOptions, AvailableSort, DomainRow, Store } from "../store";
 import { FramedInput } from "./components/framed-input";
 import { FullScreen } from "./components/full-screen";
 import { Logo } from "./components/logo";
@@ -53,8 +54,25 @@ const SORTS: Array<{ label: string; value: AvailableSort }> = [
   { label: "shortest", value: "shortest" },
 ];
 const FILTER_COUNT = 8;
+const UPDATE_OPTIONS: Array<{
+  mode: DatabaseUpdateMode;
+  label: string;
+}> = [
+  {
+    mode: "backfill",
+    label: "Backfill new + unresolved",
+  },
+  {
+    mode: "refresh-selected",
+    label: "Recheck configured TLDs",
+  },
+  {
+    mode: "refresh-all",
+    label: "Recheck everything saved",
+  },
+];
 
-type View = "check" | "browse";
+type View = "check" | "browse" | "database";
 type PricedCheckResult = CheckResult & {
   price: number | null;
   currency: string | null;
@@ -64,7 +82,11 @@ type PricedCheckResult = CheckResult & {
 type Phase =
   | { name: "input"; warning?: string }
   | { name: "checking"; word: string; done: number; total: number }
-  | { name: "results"; word: string; results: PricedCheckResult[] };
+  | { name: "results"; word: string; results: PricedCheckResult[] }
+  | { name: "confirm-update"; mode: DatabaseUpdateMode }
+  | ({ name: "updating"; mode: DatabaseUpdateMode } & DatabaseUpdateProgress)
+  | ({ name: "update-done"; mode: DatabaseUpdateMode } & DatabaseUpdateSummary)
+  | { name: "update-error"; mode: DatabaseUpdateMode; message: string };
 
 const Gap = ({ lines = 1 }: { lines?: number }) => (
   <Box flexDirection="column" flexShrink={0}>
@@ -83,20 +105,6 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   });
   await Promise.all(workers);
   return results;
-}
-
-function resultUpdate(result: CheckResult): ResultUpdate {
-  return {
-    status: result.status,
-    source: result.source,
-    expiry: result.expiry,
-    estimatedAvailable: result.estimatedAvailable,
-    siteStatus: null,
-    hasSite: null,
-    coldOutreach: false,
-    httpStatus: null,
-    checkedAt: result.checkedAt,
-  };
 }
 
 function priceLabel(
@@ -181,8 +189,43 @@ function ViewTabs({ view }: { view: View }) {
       <Text inverse={view === "browse"} bold={view === "browse"} color={theme.primary}>
         {" browse available "}
       </Text>
+      <Text color={theme.gray}> </Text>
+      <Text inverse={view === "database"} bold={view === "database"} color={theme.primary}>
+        {" update database "}
+      </Text>
     </Text>
   );
+}
+
+function DatabaseOptionRow({
+  label,
+  description,
+  selected,
+  disabled,
+}: {
+  label: string;
+  description: string;
+  selected: boolean;
+  disabled?: boolean;
+}) {
+  const theme = useTheme();
+  return (
+    <Box flexDirection="column">
+      <Text bold={selected && !disabled}>
+        <Text color={selected ? theme.primary : theme.gray}>{selected ? "❯" : " "} </Text>
+        <Text color={disabled ? theme.gray : theme.primary} dimColor={disabled}>
+          {label}
+        </Text>
+      </Text>
+      <Text color={theme.gray} dimColor={theme.dimSecondary}>
+        {`  ${description}`}
+      </Text>
+    </Box>
+  );
+}
+
+function updateLabel(mode: DatabaseUpdateMode): string {
+  return UPDATE_OPTIONS.find((option) => option.mode === mode)?.label ?? mode;
 }
 
 export function App({
@@ -195,7 +238,8 @@ export function App({
   store: Store;
 }) {
   const [themeMode, setThemeMode] = useState<ThemeMode>("auto");
-  const initialView: View = store.countAvailable() > 0 ? "browse" : "check";
+  const initialView: View =
+    store.countTotal() === 0 ? "database" : store.countAvailable() > 0 ? "browse" : "check";
   return (
     <ThemeProvider mode={themeMode}>
       <AppContent
@@ -242,7 +286,9 @@ function AppContent({
   const [priceFilter, setPriceFilter] = useState(0);
   const [sortFilter, setSortFilter] = useState(0);
   const [curatedFilter, setCuratedFilter] = useState(0);
+  const [updateSelection, setUpdateSelection] = useState(0);
   const runRef = useRef(0);
+  const updateAbortRef = useRef<AbortController | null>(null);
   const basePricesRef = useRef<Map<string, number> | null>(null);
   const columns = stdout?.columns && stdout.columns > 0 ? stdout.columns : 80;
   const inputWidth = Math.max(20, Math.min(54, columns - 14));
@@ -275,9 +321,15 @@ function AppContent({
     PAGE_SIZE,
     safeBrowsePage * PAGE_SIZE,
   );
+  const databaseTotal = store.countTotal();
+  const configuredTotal = store.countTotal(tlds);
+  const configuredChecked = store.countChecked(tlds);
+  const configuredPending = store.countPending(tlds, 3);
 
   const reset = useCallback(() => {
     runRef.current++;
+    updateAbortRef.current?.abort();
+    updateAbortRef.current = null;
     setWord("");
     setSelection(0);
     setPhase({ name: "input" });
@@ -342,6 +394,45 @@ function AppContent({
     setCuratedFilter(0);
     resetBrowsePosition();
   }, [resetBrowsePosition]);
+
+  const startDatabaseUpdate = useCallback(
+    (mode: DatabaseUpdateMode) => {
+      const controller = new AbortController();
+      updateAbortRef.current = controller;
+      let lastRender = 0;
+      setPhase({ name: "updating", mode, done: 0, total: 0, available: 0, changed: 0 });
+      void runDatabaseUpdate({
+        mode,
+        store,
+        tlds,
+        corpus: words,
+        signal: controller.signal,
+        onProgress: (progress) => {
+          const now = Date.now();
+          if (progress.done !== progress.total && now - lastRender < 100) return;
+          lastRender = now;
+          if (updateAbortRef.current === controller) {
+            setPhase({ name: "updating", mode, ...progress });
+          }
+        },
+      })
+        .then((summary) => {
+          if (updateAbortRef.current !== controller) return;
+          updateAbortRef.current = null;
+          setPhase({ name: "update-done", mode, ...summary });
+        })
+        .catch((error) => {
+          if (updateAbortRef.current !== controller) return;
+          updateAbortRef.current = null;
+          setPhase({
+            name: "update-error",
+            mode,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        });
+    },
+    [store, tlds],
+  );
 
   const checkWord = useCallback(
     (input: string) => {
@@ -428,18 +519,49 @@ function AppContent({
   );
 
   useInput((input, key) => {
-    if (key.ctrl && input === "c") return exit();
+    if (key.ctrl && input === "c") {
+      updateAbortRef.current?.abort();
+      return exit();
+    }
     if (key.ctrl && input === "t") return cycleTheme();
     if (key.escape && searchEditing) return setSearchEditing(false);
     if (searchEditing) return;
     if (key.escape && phase.name !== "input") return reset();
     if (key.escape && filtersOpen) return setFiltersOpen(false);
 
+    if (phase.name === "confirm-update" && key.return) {
+      return startDatabaseUpdate(phase.mode);
+    }
+    if (phase.name === "updating") return;
+    if (phase.name === "update-done" && key.return) {
+      setView("browse");
+      return reset();
+    }
+    if (phase.name === "update-error" && key.return) return reset();
+
     if (phase.name === "input") {
       if (key.tab) {
         setFiltersOpen(false);
-        setView((current) => (current === "check" ? "browse" : "check"));
+        setView((current) => {
+          const views: View[] = ["check", "browse", "database"];
+          return views[(views.indexOf(current) + 1) % views.length];
+        });
         setPhase({ name: "input" });
+        return;
+      }
+      if (view === "database") {
+        if (key.upArrow || input === "k") {
+          return setUpdateSelection((current) => Math.max(0, current - 1));
+        }
+        if (key.downArrow || input === "j") {
+          return setUpdateSelection((current) => Math.min(UPDATE_OPTIONS.length - 1, current + 1));
+        }
+        if (key.return) {
+          const mode = UPDATE_OPTIONS[updateSelection]?.mode;
+          if (mode && (mode !== "refresh-all" || databaseTotal > 0)) {
+            setPhase({ name: "confirm-update", mode });
+          }
+        }
         return;
       }
       if (view !== "browse") return;
@@ -506,50 +628,76 @@ function AppContent({
     }
   });
 
-  const hints: Array<[string, string]> =
-    phase.name === "input" && searchEditing
-      ? [
-          ["↵", "apply"],
-          ["esc", "cancel"],
-          ["^c", "quit"],
-        ]
-      : phase.name === "input" && view === "check"
-        ? [
-            ["tab", "browse"],
-            ["↵", "check"],
-            ["^c", "quit"],
-            ["^t", `theme:${theme.mode}`],
-          ]
-        : phase.name === "input" && filtersOpen
-          ? [
-              ["↑↓", "field"],
-              ["←→", "change"],
-              ["↵", "edit"],
-              ["x", "clear"],
-              ["f/esc", "done"],
-              ["^c", "quit"],
-            ]
-          : phase.name === "input"
-            ? [
-                ["tab", "check"],
-                ["f", `filters${activeFilters ? `:${activeFilters}` : ""}`],
-                ["↑↓", "names"],
-                ["n/p", "page"],
-                ["^c", "quit"],
-              ]
-            : phase.name === "checking"
-              ? [
-                  ["esc", "cancel"],
-                  ["^c", "quit"],
-                  ["^t", `theme:${theme.mode}`],
-                ]
-              : [
-                  ["↑↓", "browse"],
-                  ["↵", "another"],
-                  ["esc", "back"],
-                  ["^c", "quit"],
-                  ["^t", `theme:${theme.mode}`],
-                ];
+  let hints: Array<[string, string]>;
+  if (phase.name === "input" && searchEditing) {
+    hints = [
+      ["↵", "apply"],
+      ["esc", "cancel"],
+      ["^c", "quit"],
+    ];
+  } else if (phase.name === "input" && view === "check") {
+    hints = [
+      ["tab", "browse"],
+      ["↵", "check"],
+      ["^c", "quit"],
+      ["^t", `theme:${theme.mode}`],
+    ];
+  } else if (phase.name === "input" && filtersOpen) {
+    hints = [
+      ["↑↓", "field"],
+      ["←→", "change"],
+      ["↵", "edit"],
+      ["x", "clear"],
+      ["f/esc", "done"],
+      ["^c", "quit"],
+    ];
+  } else if (phase.name === "input" && view === "browse") {
+    hints = [
+      ["tab", "database"],
+      ["f", `filters${activeFilters ? `:${activeFilters}` : ""}`],
+      ["↑↓", "names"],
+      ["n/p", "page"],
+      ["^c", "quit"],
+    ];
+  } else if (phase.name === "input") {
+    hints = [
+      ["↑↓", "option"],
+      ["↵", "review"],
+      ["tab", "check"],
+      ["^c", "quit"],
+    ];
+  } else if (phase.name === "confirm-update") {
+    hints = [
+      ["↵", "start"],
+      ["esc", "cancel"],
+      ["^c", "quit"],
+    ];
+  } else if (phase.name === "updating" || phase.name === "checking") {
+    hints = [
+      ["esc", "cancel"],
+      ["^c", "quit"],
+      ["^t", `theme:${theme.mode}`],
+    ];
+  } else if (phase.name === "update-done") {
+    hints = [
+      ["↵", "browse"],
+      ["esc", "database"],
+      ["^c", "quit"],
+    ];
+  } else if (phase.name === "update-error") {
+    hints = [
+      ["↵", "back"],
+      ["^c", "quit"],
+    ];
+  } else {
+    hints = [
+      ["↑↓", "browse"],
+      ["↵", "another"],
+      ["esc", "back"],
+      ["^c", "quit"],
+      ["^t", `theme:${theme.mode}`],
+    ];
+  }
 
   const available =
     phase.name === "results"
@@ -680,6 +828,112 @@ function AppContent({
         </Panel>
       ) : null}
 
+      {phase.name === "input" && view === "database" ? (
+        <Panel
+          title={databaseTotal === 0 ? "set up local database" : "update local database"}
+          width={panelWidth}
+          bodyHeight={9}
+        >
+          <Text color={theme.gray} dimColor={theme.dimSecondary}>
+            {databaseTotal === 0
+              ? "No saved catalogue yet. Every result is stored as it finishes."
+              : `${configuredChecked.toLocaleString()}/${configuredTotal.toLocaleString()} configured rows checked · ${configuredPending.toLocaleString()} unresolved`}
+          </Text>
+          {UPDATE_OPTIONS.map((option, index) => {
+            const description =
+              option.mode === "backfill"
+                ? `${words.length.toLocaleString()} words × ${tlds.length} configured TLDs`
+                : option.mode === "refresh-selected"
+                  ? `${configuredTotal.toLocaleString()} saved now on configured TLDs`
+                  : `${databaseTotal.toLocaleString()} saved rows across every TLD`;
+            return (
+              <DatabaseOptionRow
+                key={option.mode}
+                label={option.label}
+                description={description}
+                selected={index === updateSelection}
+                disabled={option.mode === "refresh-all" && databaseTotal === 0}
+              />
+            );
+          })}
+        </Panel>
+      ) : null}
+
+      {phase.name === "confirm-update" ? (
+        <Panel title={updateLabel(phase.mode)} width={panelWidth} bodyHeight={6}>
+          {phase.mode === "backfill" ? (
+            <>
+              <Text color={theme.primary}>
+                Seed {words.length.toLocaleString()} words across {tlds.length} configured TLDs.
+              </Text>
+              <Text color={theme.gray} dimColor={theme.dimSecondary}>
+                Seeds up to {(words.length * tlds.length).toLocaleString()} bundled rows, then
+                checks new and unresolved saved rows.
+              </Text>
+            </>
+          ) : phase.mode === "refresh-selected" ? (
+            <>
+              <Text color={theme.primary}>
+                Seed missing words, then recheck every row on {tlds.length} configured TLDs.
+              </Text>
+              <Text color={theme.gray} dimColor={theme.dimSecondary}>
+                Every saved row on those TLDs makes one live registry check.
+              </Text>
+            </>
+          ) : (
+            <>
+              <Text color={theme.primary}>
+                Recheck all {databaseTotal.toLocaleString()} saved rows across{" "}
+                {store.trackedTlds().length} TLDs.
+              </Text>
+              <Text color={theme.gray} dimColor={theme.dimSecondary}>
+                This includes imported words and custom TLDs.
+              </Text>
+            </>
+          )}
+          <Text color={theme.gray} dimColor={theme.dimSecondary}>
+            Checks are live. You can stop and resume without losing finished rows.
+          </Text>
+          <Text color={theme.primary}>Press Enter to start.</Text>
+        </Panel>
+      ) : null}
+
+      {phase.name === "updating" ? (
+        <Panel title={updateLabel(phase.mode)} width={panelWidth} bodyHeight={6}>
+          <Text color={theme.primary}>
+            {phase.done.toLocaleString()}/{phase.total.toLocaleString()} checked
+          </Text>
+          <Text color={theme.gray} dimColor={theme.dimSecondary}>
+            {phase.available.toLocaleString()} available · {phase.changed.toLocaleString()} changed
+          </Text>
+          <Text color={theme.gray} dimColor={theme.dimSecondary}>
+            Results are saved continuously. Escape stops after current checks finish.
+          </Text>
+        </Panel>
+      ) : null}
+
+      {phase.name === "update-done" ? (
+        <Panel title="database updated" width={panelWidth} bodyHeight={6}>
+          <Text color={theme.primary}>✓ {phase.done.toLocaleString()} domains checked</Text>
+          <Text color={theme.gray} dimColor={theme.dimSecondary}>
+            {phase.available.toLocaleString()} available · {phase.changed.toLocaleString()} changed
+            · {phase.added.toLocaleString()} new rows
+          </Text>
+          <Text color={theme.gray} dimColor={theme.dimSecondary}>
+            Press Enter to browse the saved available names.
+          </Text>
+        </Panel>
+      ) : null}
+
+      {phase.name === "update-error" ? (
+        <Panel title={`${updateLabel(phase.mode)} stopped`} width={panelWidth} bodyHeight={5}>
+          <Text color={theme.primary}>✗ {phase.message}</Text>
+          <Text color={theme.gray} dimColor={theme.dimSecondary}>
+            Finished rows are still saved. Run the backfill again to resume.
+          </Text>
+        </Panel>
+      ) : null}
+
       {phase.name === "checking" ? (
         <FramedInput title="Checking every TLD" width={inputWidth} button="check" buttonDim>
           <Text color={theme.gray} dimColor={theme.dimSecondary}>
@@ -710,14 +964,14 @@ function AppContent({
       <Shortcuts
         items={hints}
         leading={
-          phase.name === "checking" ? (
+          phase.name === "checking" || phase.name === "updating" ? (
             <Text>
               <Text color={theme.primary}>
                 <Spinner type="dots" />
               </Text>
               <Text color={theme.gray} dimColor={theme.dimSecondary}>
                 {" "}
-                checking {phase.done}/{phase.total}
+                checking {phase.done.toLocaleString()}/{phase.total.toLocaleString()}
               </Text>
             </Text>
           ) : undefined
