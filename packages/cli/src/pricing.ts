@@ -44,8 +44,8 @@ export function porkbunKeysFromEnv(): PorkbunKeys | null {
  * Porkbun doesn't carry just wastes a rate-limited call and can mis-report a
  * genuinely-available name as unavailable — so skip those.
  */
-export async function porkbunSupportedTlds(): Promise<Set<string>> {
-  const res = await fetch(`${BASE}/pricing/get`, { signal: AbortSignal.timeout(15000) });
+export async function porkbunSupportedTlds(timeoutMs = 15000): Promise<Set<string>> {
+  const res = await fetch(`${BASE}/pricing/get`, { signal: AbortSignal.timeout(timeoutMs) });
   const j = (await res.json()) as { status?: string; pricing?: Record<string, unknown> };
   return new Set(Object.keys(j.pricing ?? {}));
 }

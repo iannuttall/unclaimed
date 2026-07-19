@@ -10,7 +10,8 @@ import {
   resultUpdate,
   runDatabaseUpdate,
 } from "../database-update";
-import { FLAT_TLD_PRICES, porkbunTldPrices } from "../pricing";
+import { NETIM_PREFERRED_TLDS, openBrowser, registrarSearchTarget } from "../open-browser";
+import { FLAT_TLD_PRICES, porkbunSupportedTlds, porkbunTldPrices } from "../pricing";
 import type { AvailableBrowseOptions, AvailableSort, DomainRow, Store } from "../store";
 import { FramedInput } from "./components/framed-input";
 import { FullScreen } from "./components/full-screen";
@@ -287,9 +288,15 @@ function AppContent({
   const [sortFilter, setSortFilter] = useState(0);
   const [curatedFilter, setCuratedFilter] = useState(0);
   const [updateSelection, setUpdateSelection] = useState(0);
+  const [purchaseNotice, setPurchaseNotice] = useState<{
+    domain: string;
+    message: string;
+  } | null>(null);
   const runRef = useRef(0);
   const updateAbortRef = useRef<AbortController | null>(null);
   const basePricesRef = useRef<Map<string, number> | null>(null);
+  const porkbunTldsRef = useRef<Set<string> | null>(null);
+  const purchaseRunRef = useRef(0);
   const columns = stdout?.columns && stdout.columns > 0 ? stdout.columns : 80;
   const inputWidth = Math.max(20, Math.min(54, columns - 14));
   const panelWidth = Math.max(42, Math.min(62, columns - 6));
@@ -325,11 +332,21 @@ function AppContent({
   const configuredTotal = store.countTotal(tlds);
   const configuredChecked = store.countChecked(tlds);
   const configuredPending = store.countPending(tlds, 3);
+  const highlightedDomain =
+    phase.name === "results"
+      ? phase.results[selection]?.domain
+      : phase.name === "input" && view === "browse"
+        ? browseRows[browseSelection]?.domain
+        : undefined;
+  const visiblePurchaseNotice =
+    purchaseNotice?.domain === highlightedDomain ? purchaseNotice : null;
 
   const reset = useCallback(() => {
     runRef.current++;
     updateAbortRef.current?.abort();
     updateAbortRef.current = null;
+    purchaseRunRef.current++;
+    setPurchaseNotice(null);
     setWord("");
     setSelection(0);
     setPhase({ name: "input" });
@@ -434,6 +451,40 @@ function AppContent({
     [store, tlds],
   );
 
+  const buyDomain = useCallback((domain: string, tld: string, status: string) => {
+    const run = ++purchaseRunRef.current;
+    if (status !== "available") {
+      setPurchaseNotice({ domain, message: "Only available domains can be opened for purchase." });
+      return;
+    }
+    setPurchaseNotice({ domain, message: "Finding a registrar..." });
+    void (async () => {
+      try {
+        let supported = porkbunTldsRef.current;
+        if (!supported && basePricesRef.current) {
+          supported = new Set(basePricesRef.current.keys());
+        }
+        if (!supported && !NETIM_PREFERRED_TLDS.has(tld)) {
+          supported = await porkbunSupportedTlds(5000).catch(() => new Set<string>());
+          porkbunTldsRef.current = supported;
+        }
+        if (run !== purchaseRunRef.current) return;
+        const target = registrarSearchTarget(domain, tld, supported ?? new Set<string>());
+        await openBrowser(target.url);
+        if (run === purchaseRunRef.current) {
+          setPurchaseNotice({ domain, message: `Opened ${domain} at ${target.name}.` });
+        }
+      } catch (error) {
+        if (run === purchaseRunRef.current) {
+          setPurchaseNotice({
+            domain,
+            message: `Could not open a registrar: ${error instanceof Error ? error.message : String(error)}`,
+          });
+        }
+      }
+    })();
+  }, []);
+
   const checkWord = useCallback(
     (input: string) => {
       const normalized = input.trim().toLowerCase();
@@ -443,6 +494,7 @@ function AppContent({
       }
 
       store.seed([normalized], tlds);
+      setPurchaseNotice(null);
       const rows = new Map(store.forWord(normalized, tlds).map((row) => [row.domain, row]));
       const run = ++runRef.current;
       setWord(normalized);
@@ -582,6 +634,10 @@ function AppContent({
         if (input === "x") return clearFilters();
         return;
       }
+      if (input === "b" && browseRows[browseSelection]) {
+        const row = browseRows[browseSelection];
+        return buyDomain(row.domain, row.tld, row.status);
+      }
       if (key.leftArrow) return changeBrowseFilter(-1);
       if (key.rightArrow) return changeBrowseFilter(1);
       if (key.upArrow || input === "k") {
@@ -619,6 +675,10 @@ function AppContent({
     }
 
     if (phase.name !== "results") return;
+    if (input === "b" && phase.results[selection]) {
+      const result = phase.results[selection];
+      return buyDomain(result.domain, result.tld, result.status);
+    }
     if (key.return) return reset();
     if (key.upArrow || input === "k") {
       setSelection((current) => Math.max(0, current - 1));
@@ -656,7 +716,7 @@ function AppContent({
       ["tab", "database"],
       ["f", `filters${activeFilters ? `:${activeFilters}` : ""}`],
       ["↑↓", "names"],
-      ["n/p", "page"],
+      ["b", "buy"],
       ["^c", "quit"],
     ];
   } else if (phase.name === "input") {
@@ -692,6 +752,7 @@ function AppContent({
   } else {
     hints = [
       ["↑↓", "browse"],
+      ["b", "buy"],
       ["↵", "another"],
       ["esc", "back"],
       ["^c", "quit"],
@@ -960,7 +1021,12 @@ function AppContent({
         </Panel>
       ) : null}
 
-      <Gap lines={2} />
+      {visiblePurchaseNotice ? (
+        <Text color={theme.gray} dimColor={theme.dimSecondary}>
+          {visiblePurchaseNotice.message}
+        </Text>
+      ) : null}
+      <Gap lines={visiblePurchaseNotice ? 1 : 2} />
       <Shortcuts
         items={hints}
         leading={
