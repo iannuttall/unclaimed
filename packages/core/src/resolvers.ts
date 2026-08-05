@@ -1,13 +1,12 @@
-import { type KvLike, type RdapResult, rdapEnabledTlds, rdapLookup } from "./rdap";
+import { type RdapResult, rdapEnabledTlds, rdapLookup } from "./rdap";
 
 export type Status = "available" | "registered" | "unknown";
 export type Source = "rdap" | "whois" | "cache";
 export type ForceSource = "auto" | "rdap" | "whois";
 
 /**
- * WHOIS transport is injected so the core has no Worker- or Node-specific import:
- *   - Worker entry  -> setWhoisTransport(whoisQuery from "./whois")       (sockets)
- *   - CLI entry     -> setWhoisTransport(whoisQuery from "./whois-node")  (node:net)
+ * WHOIS transport is injected so the resolver stays separate from Node's
+ * networking API. The CLI registers its node:net implementation at startup.
  */
 export type WhoisFn = (server: string, domain: string, timeoutMs?: number) => Promise<string>;
 
@@ -278,9 +277,9 @@ async function discoverWhoisServer(tld: string): Promise<string> {
  */
 export async function checkDomain(
   domain: string,
-  opts: { kv?: KvLike; source?: ForceSource } = {},
+  opts: { source?: ForceSource } = {},
 ): Promise<CheckResult> {
-  const { kv, source = "auto" } = opts;
+  const { source = "auto" } = opts;
   const normalizedDomain = domain.trim().toLowerCase();
   if (!/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(normalizedDomain)) {
     throw new Error(`invalid domain: ${domain}`);
@@ -316,7 +315,7 @@ export async function checkDomain(
     if (RDAP_OVERRIDES[tld]) {
       rdap = await rdapLookup(RDAP_OVERRIDES[tld](domain));
     } else {
-      const enabled = await rdapEnabledTlds(kv);
+      const enabled = await rdapEnabledTlds();
       if (enabled.has(tld)) {
         rdap = await rdapLookup(`https://rdap.org/domain/${domain}`);
       }

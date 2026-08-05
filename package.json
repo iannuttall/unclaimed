@@ -13,13 +13,15 @@
     "check": "pnpm build && pnpm typecheck && pnpm test && pnpm lint",
     "clean": "turbo run clean",
     "dev": "UNCLAIMED_DB=./data/domains.db tsx --tsconfig packages/cli/tsconfig.json packages/cli/src/cli.ts",
-    "lint": "biome check . && turbo run lint",
+    "lint": "biome check . && node scripts/check-repo.mjs && turbo run lint",
     "lint:fix": "biome check . --write",
     "pack:dry-run": "pnpm --filter unclaimed pack --dry-run",
+    "security:check": "pnpm audit --audit-level high && node scripts/security-secrets.mjs",
     "test": "turbo run test",
+    "test:package-install": "pnpm build && node scripts/installed-package.test.mjs",
+    "test:package-install:built": "node scripts/installed-package.test.mjs",
     "typecheck": "turbo run typecheck",
-    "unclaimed": "UNCLAIMED_DB=./data/domains.db tsx --tsconfig packages/cli/tsconfig.json packages/cli/src/cli.ts",
-    "worker:deploy:dry-run": "pnpm --filter @unclaimed/worker deploy:dry-run"
+    "unclaimed": "UNCLAIMED_DB=./data/domains.db tsx --tsconfig packages/cli/tsconfig.json packages/cli/src/cli.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.3",

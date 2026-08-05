@@ -10,7 +10,6 @@ Unclaimed is a Node.js CLI and npm package for checking single-word domain avail
 - Treat `unknown` as unknown, never as available.
 - Use explicit commands such as `unclaimed check` in agents and automation. Bare `unclaimed` is the human TTY interface.
 - Preserve resumable SQLite behavior. `sweep` handles new or unresolved rows; `refresh` rechecks old results.
-- Keep the published `unclaimed` package free of Worker-only dependencies.
 - Keep Ink and React lazy-loaded so headless commands do not pay the interactive UI startup cost.
 - Prefer platform APIs and zero-runtime-dependency code when practical.
 - Update the README and bundled skill when command behavior changes.
@@ -22,12 +21,12 @@ Unclaimed is a Node.js CLI and npm package for checking single-word domain avail
 packages/core     RDAP, WHOIS classification, liveness, and bundled words
 packages/cli      npm package, CLI, SQLite store, registrar pricing, and skill
 packages/cli/src/ui  interactive Ink interface, loaded only for a bare TTY command
-apps/worker       optional Cloudflare API, outside the npm package
 scripts           word-corpus build and research tooling
 research          useful source research kept out of runtime code
 ```
 
-The CLI injects the Node WHOIS transport into `@unclaimed/core`. The Worker injects its Cloudflare sockets transport. Keep the core runtime-independent.
+The CLI injects the Node WHOIS transport into `@unclaimed/core`. Keep the core
+resolver logic separate from the command and interactive UI.
 
 ## Commands
 

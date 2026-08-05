@@ -1,10 +1,8 @@
 import { createConnection } from "node:net";
 
 /**
- * Raw WHOIS query over TCP port 43 — Node transport for the CLI.
- *
- * Same protocol as the Worker version in ./whois.ts, over node:net instead of
- * cloudflare:sockets. Register it via setWhoisTransport() in resolvers.ts.
+ * Raw WHOIS query over TCP port 43. Register it via setWhoisTransport() in
+ * resolvers.ts so the core resolver stays independent from node:net.
  */
 export function whoisQuery(server: string, domain: string, timeoutMs = 8000): Promise<string> {
   return new Promise<string>((resolve, reject) => {

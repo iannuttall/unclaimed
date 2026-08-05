@@ -5,8 +5,7 @@ import { commercialScoreParts, isCuratedWord, isPluralWord, qualityScoreParts } 
 
 /**
  * Local SQLite store for the CLI, via Node's built-in `node:sqlite` (no native
- * deps, no build step). Same shape as the Worker's D1 schema, so the two stay
- * conceptually identical. One row per domain (word × tld), plus an append-only
+ * deps, no build step). One row per domain (word × tld), plus an append-only
  * status-change log.
  */
 

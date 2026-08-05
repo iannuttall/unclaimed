@@ -1,60 +1,100 @@
-# unclaimed
+<div align="center">
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/iannuttall/unclaimed/main/assets/logo-dark.svg">
-  <img src="https://raw.githubusercontent.com/iannuttall/unclaimed/main/assets/logo-light.svg" alt="unclaimed" width="456">
+  <img src="https://raw.githubusercontent.com/iannuttall/unclaimed/main/assets/logo-light.svg" alt="Unclaimed" width="456">
 </picture>
 
-Find available single-word domains from your terminal.
+**Find available single-word domains without living in registrar search boxes.**
+
+Check one word or scan 11,822 bundled names across any delegated TLD. Unclaimed uses RDAP and WHOIS, saves every result locally, and lets long searches pick up where they stopped.
+
+[Get started](#quick-start) ·
+[Full documentation](https://github.com/iannuttall/unclaimed#readme) ·
+[Project page](https://ian.is/unclaimed) ·
+[Questions](https://github.com/iannuttall/unclaimed/issues) ·
+[Security](https://github.com/iannuttall/unclaimed/blob/main/SECURITY.md) ·
+[License](https://github.com/iannuttall/unclaimed/blob/main/LICENSE)
+
+<a href="https://github.com/iannuttall/unclaimed/actions/workflows/ci.yml"><img alt="Checks" src="https://img.shields.io/github/actions/workflow/status/iannuttall/unclaimed/ci.yml?branch=main&label=checks&style=flat-square"></a>
+<a href="https://www.npmjs.com/package/unclaimed"><img alt="npm version" src="https://img.shields.io/npm/v/unclaimed?style=flat-square"></a>
+<a href="https://www.npmjs.com/package/unclaimed"><img alt="npm downloads" src="https://img.shields.io/npm/dm/unclaimed?style=flat-square"></a>
+<img alt="Node 24 or newer" src="https://img.shields.io/badge/Node-24%2B-339933?style=flat-square">
+<img alt="TypeScript ready" src="https://img.shields.io/badge/TypeScript-ready-3178c6?style=flat-square">
+<a href="https://github.com/iannuttall/unclaimed/blob/main/LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-lightgrey?style=flat-square"></a>
+
+</div>
+
+---
+
+Unclaimed checks domain registries directly and keeps the answers in a local SQLite catalogue. Use it for one focused lookup, a resumable word-list scan, or an interactive terminal view of the names worth keeping.
+
+Timeouts and unclear replies stay `unknown`. They are never quietly reported as available.
+
+## Quick start
+
+Requires Node.js 24 or newer.
 
 ```sh
 npm i -g unclaimed
-unclaimed
-```
-
-The bare command opens the interactive interface in a terminal. Tab cycles through checking one word, browsing saved available names, and updating the local database. First run can backfill new rows; later runs can resume unresolved checks or recheck saved results. The browse view has search, TLD, form, length, premium, price, corpus, and sort filters.
-
-Press `b` on a selected available domain to open it at a registrar. Unclaimed uses Porkbun where supported, prefers Netim for `.md` and `.so`, and falls back to Netim for other TLDs.
-
-Explicit commands and flags stay headless for agents, scripts, and CI:
-
-```sh
 unclaimed check orbit --tlds io,ai,dev
 ```
 
-Unclaimed checks RDAP first, falls back to WHOIS, and stores results in local SQLite. It bundles 11,822 words and accepts your own word and TLD lists.
+Run `unclaimed` without a command to open the interactive interface. Tab moves between checking a word, browsing saved names, and updating the local catalogue.
 
-## Full update
+You can also try one check without installing anything:
 
 ```sh
-# Recheck the bundled corpus on the default TLDs
-unclaimed refresh
-
-# Recheck every stored row, including custom imports
-unclaimed refresh --all
+npx unclaimed check orbit.dev
 ```
 
-For a faster registrar-backed pass, configure Namecheap credentials and run `unclaimed refresh --all --fast`.
+## Search more than one word
 
-## Custom TLDs
+The bundled catalogue contains 11,822 common and brandable English words. `sweep` checks new and unresolved rows, saves each result as it arrives, and resumes safely after a stop.
+
+```sh
+unclaimed sweep --tlds io,ai,dev
+unclaimed available --sort commercial --limit 50
+unclaimed available --singular --max-len 8 --no-premium
+```
+
+Bring your own newline-separated or JSON word list when the bundled corpus is not the right fit:
+
+```sh
+unclaimed sweep --words-file ./words.txt --tlds design,tools
+```
+
+## Use any delegated TLD
+
+Pass any suffix directly or load a longer list from a file:
 
 ```sh
 unclaimed check orbit --tlds co.uk,design,tools
 unclaimed sweep --tlds-file ./tlds.txt
 ```
 
-Run `unclaimed config` to find the config file. It supports default `tlds`, `database`, and per-TLD `rdap`, `whois`, `availablePatterns`, and `whoisPaceMs` overrides.
+Unclaimed discovers normal WHOIS routes through IANA. The local config supports explicit RDAP, WHOIS, availability-pattern, and pacing overrides for unusual registries.
 
-## Results
+## Understand the answer
 
-- `available`: the registry indicates no registration
-- `registered`: a registration or reserved-name signal was found
-- `unknown`: the response could not be classified, so do not treat it as free
+| Result | Meaning |
+| --- | --- |
+| `available` | The registry indicates that the domain is not registered. |
+| `registered` | The registry returned a record or a reserved-name signal. |
+| `unknown` | The lookup failed, timed out, was rate-limited, or could not be classified. |
 
-Confirm an available result at a registrar before buying. Pricing and premium status can change.
+Confirm an available result at a registrar before buying. Reservations, premium prices, and fresh registrations can change the final answer.
 
-## More
+## Install the agent skill
 
-See the [full documentation](https://github.com/iannuttall/unclaimed#readme) for scanning, filters, pricing, storage, agent skill usage, and development.
+```sh
+npx skills add iannuttall/unclaimed
+```
 
-MIT. The interactive interface is adapted from [Yoinks](https://github.com/pablostanley/yoinks); see `THIRD_PARTY_NOTICES.md` in the package.
+The packaged skill teaches agents to use explicit commands, preserve uncertainty, and avoid running an expensive full refresh unless you requested one.
+
+## Keep going
+
+The [full Unclaimed documentation](https://github.com/iannuttall/unclaimed#readme) covers the interactive browser, filters, registrar pricing, storage paths, every command, and local development.
+
+Unclaimed is available under the [MIT License](https://github.com/iannuttall/unclaimed/blob/main/LICENSE). The interactive interface is adapted from [Yoinks](https://github.com/pablostanley/yoinks).

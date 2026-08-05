@@ -1,0 +1,26 @@
+name: Proposal
+description: Propose a focused Unclaimed change
+title: "proposal: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: job
+    attributes:
+      label: Job
+      description: What should a person or agent be able to do?
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: Current limitation
+      description: Why do the existing commands or configuration not cover it?
+    validations:
+      required: true
+  - type: textarea
+    id: truth
+    attributes:
+      label: Availability safety
+      description: Could this change make an unknown or reserved name look available?
+    validations:
+      required: true

@@ -5,7 +5,6 @@
       "**",
       "!**/dist",
       "!**/.turbo",
-      "!**/.wrangler",
       "!data",
       "!scripts",
       "!packages/core/src/data/*.json"

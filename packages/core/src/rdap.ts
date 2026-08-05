@@ -1,15 +1,5 @@
 import type { Status } from "./resolvers";
 
-/**
- * Minimal KV shape the resolver needs. A real Cloudflare KVNamespace satisfies
- * this structurally, so the core stays free of Worker-only types and runs in
- * Node (the CLI) too, where no KV is passed at all.
- */
-export interface KvLike {
-  get(key: string, type: "json"): Promise<unknown>;
-  put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
-}
-
 export interface RdapResult {
   status: Status;
   /** Registry expiry date as an ISO string, when the record exposes one. */
@@ -109,17 +99,17 @@ function sleep(ms: number): Promise<void> {
 
 /**
  * IANA RDAP bootstrap: the authoritative list of which TLDs have RDAP.
- * Cached in module scope (per-isolate) and optionally in KV for longer.
+ * Cached in module scope so repeated checks do not refetch it.
  */
 const BOOTSTRAP_URL = "https://data.iana.org/rdap/dns.json";
 let bootstrapCache: Set<string> | null = null;
 let bootstrapPromise: Promise<Set<string>> | null = null;
 
-export async function rdapEnabledTlds(kv?: KvLike): Promise<Set<string>> {
+export async function rdapEnabledTlds(): Promise<Set<string>> {
   if (bootstrapCache) return bootstrapCache;
 
   if (bootstrapPromise) return bootstrapPromise;
-  bootstrapPromise = loadRdapTlds(kv);
+  bootstrapPromise = loadRdapTlds();
   try {
     bootstrapCache = await bootstrapPromise;
     return bootstrapCache;
@@ -128,16 +118,7 @@ export async function rdapEnabledTlds(kv?: KvLike): Promise<Set<string>> {
   }
 }
 
-async function loadRdapTlds(kv?: KvLike): Promise<Set<string>> {
-  // Try KV first (survives isolate restarts).
-  if (kv) {
-    const cached = await kv.get("rdap:bootstrap", "json");
-    if (cached && Array.isArray(cached)) {
-      bootstrapCache = new Set(cached as string[]);
-      return bootstrapCache;
-    }
-  }
-
+async function loadRdapTlds(): Promise<Set<string>> {
   const set = new Set<string>();
   try {
     const res = await fetch(BOOTSTRAP_URL, {
@@ -153,11 +134,5 @@ async function loadRdapTlds(kv?: KvLike): Promise<Set<string>> {
     return new Set();
   }
 
-  bootstrapCache = set;
-  if (kv) {
-    await kv.put("rdap:bootstrap", JSON.stringify([...set]), {
-      expirationTtl: 60 * 60 * 24 * 7, // refresh weekly
-    });
-  }
   return set;
 }

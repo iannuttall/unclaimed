@@ -33,7 +33,7 @@
     "cli",
     "agents"
   ],
-  "homepage": "https://github.com/iannuttall/unclaimed#readme",
+  "homepage": "https://ian.is/unclaimed",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/iannuttall/unclaimed.git"

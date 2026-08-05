@@ -1,75 +1,97 @@
-# unclaimed
+<div align="center">
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
-  <img src="assets/logo-light.svg" alt="unclaimed" width="456">
+  <img src="assets/logo-light.svg" alt="Unclaimed" width="456">
 </picture>
 
-Find available single-word domains from your terminal.
+**Find available single-word domains without living in registrar search boxes.**
 
-Unclaimed checks RDAP first, falls back to WHOIS, and stores results in a local SQLite database. It ships with 11,822 common and brandable English words, accepts your own word lists, and can search any delegated TLD.
+Check one word or scan 11,822 bundled names across any delegated TLD. Unclaimed uses RDAP and WHOIS, saves every result locally, and lets long searches pick up where they stopped.
 
-## Install
+[Get started](#quick-start) ·
+[npm](https://www.npmjs.com/package/unclaimed) ·
+[Project page](https://ian.is/unclaimed) ·
+[Questions](https://github.com/iannuttall/unclaimed/issues) ·
+[Security](SECURITY.md) ·
+[License](LICENSE) ·
+[Agent notes](AGENTS.md)
 
-Unclaimed needs Node.js 24 or newer because it uses the built-in SQLite module.
+<a href="https://github.com/iannuttall/unclaimed/actions/workflows/ci.yml"><img alt="Checks" src="https://img.shields.io/github/actions/workflow/status/iannuttall/unclaimed/ci.yml?branch=main&label=checks&style=flat-square"></a>
+<a href="https://www.npmjs.com/package/unclaimed"><img alt="npm version" src="https://img.shields.io/npm/v/unclaimed?style=flat-square"></a>
+<a href="https://www.npmjs.com/package/unclaimed"><img alt="npm downloads" src="https://img.shields.io/npm/dm/unclaimed?style=flat-square"></a>
+<img alt="Node 24 or newer" src="https://img.shields.io/badge/Node-24%2B-339933?style=flat-square">
+<img alt="TypeScript ready" src="https://img.shields.io/badge/TypeScript-ready-3178c6?style=flat-square">
+<a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-lightgrey?style=flat-square"></a>
+
+</div>
+
+---
+
+Domain searches get annoying as soon as you care about more than one TLD. Unclaimed checks the registries directly, keeps the answers in SQLite, and gives you one catalogue to filter instead of another pile of open tabs.
+
+It works as a focused command, a resumable scanner, or an interactive terminal app. Timeouts and unclear registry replies stay `unknown`; they are never quietly reported as available.
+
+## Quick start
+
+Unclaimed needs Node.js 24 or newer.
 
 ```sh
 npm i -g unclaimed
+unclaimed check orbit --tlds io,ai,dev
 ```
 
-You can also run it without installing:
-
-```sh
-npx unclaimed check orbit --tlds io,ai,dev
-```
-
-## Interactive mode
-
-Run the bare command in a terminal to open the interactive interface:
+Run the bare command when you want the interactive interface:
 
 ```sh
 unclaimed
 ```
 
-Type one word and Unclaimed checks it across your configured TLDs. Available results include saved exact prices when known or a `~$` standard TLD price as a fallback. Use the arrow keys to browse results, Enter to check another word, Escape to go back, and Ctrl-T to change the theme.
+Type one word to check it across your configured TLDs. Press Tab to move between checking a word, browsing saved names, and updating the local catalogue.
 
-Tab cycles through checking a word, browsing saved names, and updating the local database. An empty database opens on the setup view. Choose a resumable backfill, recheck the configured TLDs, or recheck every saved row including imported words and custom TLDs. Unclaimed shows the request scope before it starts and saves each result as it finishes.
-
-In the browse view press `f` for search plus filters covering TLD, singular or plural form, word length, premium status, maximum price, curated words, and sorting by newest, name, quality, commercial value, price, or length. Press `b` on a selected available domain to open it at a registrar. Porkbun is used when its live pricing feed lists the TLD. Netim handles `.md`, `.so`, and the fallback route for other TLDs.
-
-The interface only starts when both input and output are attached to a terminal. Commands, flags, pipes, agents, and CI stay headless:
+You can also try one check without installing anything:
 
 ```sh
-unclaimed check orbit --tlds io,ai,dev
-unclaimed stats --tlds dev
-unclaimed available --limit 20
+npx unclaimed check orbit.dev
 ```
 
-## Check a word
+## What Unclaimed gives you
 
-The main input is one word. Pass a comma-separated set of TLDs to check it across several registries:
+- One word checked across a handful of TLDs or every suffix you provide.
+- A bundled list of 11,822 common and brandable English words.
+- Resumable scans that save each answer as it arrives.
+- Search and filters for TLD, length, singular form, premium status, price, and word quality.
+- Exact registrar prices when configured, with normal TLD prices as a fallback.
+- Headless commands and structured output for scripts, CI, and agents.
+- A local SQLite catalogue with no account and no hosted service.
+
+## Check one word across several TLDs
+
+Pass a comma-separated list when the word matters more than the extension:
 
 ```sh
 unclaimed check orbit --tlds io,ai,dev,app
 ```
 
-Or check one complete domain:
+Pass a complete domain when you only care about one result:
 
 ```sh
 unclaimed check orbit.dev
 ```
 
-Results are one of:
+Every result has one of three states:
 
-- `available`: the registry indicates that the domain is not registered
-- `registered`: the registry returned a record or reserved-name signal
-- `unknown`: the lookup timed out, was rate-limited, or could not be classified
+| Result | Meaning |
+| --- | --- |
+| `available` | The registry indicates that the domain is not registered. |
+| `registered` | The registry returned a record or a reserved-name signal. |
+| `unknown` | The lookup failed, timed out, was rate-limited, or could not be classified. |
 
-Treat availability as a strong lead, not a purchase guarantee. Registrars can still reserve a name or charge a premium price.
+An available result is a strong lead, not a purchase guarantee. Registrars can reserve a name, apply premium pricing, or receive another registration first. Confirm the domain before buying it.
 
-## Scan the word list
+## Search the bundled word list
 
-`sweep` seeds the bundled corpus and checks rows that are new or unresolved. Confident old results are skipped, so you can stop and resume it safely.
+`sweep` adds the bundled words to the local catalogue and checks rows that are new or unresolved. Stop it whenever you need to. The next run skips confident saved answers and carries on.
 
 ```sh
 unclaimed sweep --tlds io,ai,dev
@@ -77,7 +99,7 @@ unclaimed available --sort commercial --limit 50
 unclaimed stats
 ```
 
-Useful filters:
+The useful names are usually hiding in a much larger result set. Filter before you browse:
 
 ```sh
 unclaimed available --tlds dev,app --singular --max-len 8
@@ -87,73 +109,46 @@ unclaimed candidates --limit 50
 unclaimed dropping --limit 50
 ```
 
-Pass your own JSON array or newline-separated word list with `--words-file`:
+Bring your own JSON array or newline-separated word list with `--words-file`:
 
 ```sh
 unclaimed sweep --words-file ./words.txt --tlds design,tools
 ```
 
-## Refresh everything
+## Refresh saved answers
 
-`sweep` does not recheck confident results. `refresh` does.
-
-Recheck the bundled corpus on the default TLDs:
+`sweep` leaves confident old answers alone. `refresh` deliberately asks again.
 
 ```sh
+# Recheck the bundled corpus on the default TLDs
 unclaimed refresh
-```
 
-Recheck every row already in the database, including custom TLDs and imported words:
-
-```sh
+# Recheck every saved row, including imported words and custom TLDs
 unclaimed refresh --all
 ```
 
-This is the full update command. It can make hundreds of thousands of live registry requests, so expect it to take time. Narrow it when needed:
+A full refresh can make hundreds of thousands of registry requests. Narrow the scope when you do not need everything:
 
 ```sh
 unclaimed refresh --tlds io,ai --concurrency 12
 ```
 
-Liveness checks are off during refresh because fetching every registered website is much slower. Add `--liveness` when you need parked-site or cold-outreach data.
+Liveness checks are disabled during refresh because fetching every registered site is much slower. Add `--liveness` when parked-site or cold-outreach data matters.
 
-### Fast registrar refresh
+## Use any delegated TLD
 
-Namecheap can check up to 50 domains per request. Add these values to `.env`:
-
-```dotenv
-NAMECHEAP_API_USER=your-user
-NAMECHEAP_API_KEY=your-key
-NAMECHEAP_USERNAME=your-user
-# Optional when automatic IP detection is unsuitable
-NAMECHEAP_CLIENT_IP=203.0.113.10
-```
-
-Then run:
-
-```sh
-unclaimed refresh --all --fast
-```
-
-Your current client IP must be allowed in Namecheap. TLDs that Namecheap does not sell fall back to RDAP or WHOIS. Fast results also include registrar availability and premium pricing when returned.
-
-## Add any TLD
-
-You do not need a code change for most TLDs:
+Most TLDs work without a code change. Unclaimed asks IANA for the authoritative WHOIS server and caches the answer.
 
 ```sh
 unclaimed check orbit --tlds co.uk,design,tools
 unclaimed sweep --tlds-file ./tlds.txt
 ```
 
-`--tlds-file` accepts a JSON array or comma, space, or newline-separated text.
-
-Unclaimed loads repeat settings from the JSON config shown by `unclaimed config`. The default location is `~/.config/unclaimed/config.json`, or `$XDG_CONFIG_HOME/unclaimed/config.json` when set.
+`--tlds-file` accepts a JSON array or comma, space, or newline-separated text. Registry overrides can be saved in the config shown by `unclaimed config`.
 
 ```json
 {
   "tlds": ["io", "ai", "co.uk"],
-  "database": "/absolute/path/to/domains.db",
   "whois": {
     "example": "whois.registry.example"
   },
@@ -169,59 +164,82 @@ Unclaimed loads repeat settings from the JSON config shown by `unclaimed config`
 }
 ```
 
-For unknown TLDs, Unclaimed asks IANA for the authoritative WHOIS server and caches the answer. Use config overrides for registries with unusual endpoints, response wording, or rate limits. Only add an availability pattern after inspecting real registry output, since a loose match can create false positives.
+Only add a custom availability pattern after inspecting real registry output. A loose match can turn a registered domain into a false positive.
 
-## Data and privacy
+## Add live registrar data
 
-The default database is:
+Normal checks do not need a registrar account. Unclaimed can add exact pricing and premium status through optional registrar credentials.
 
-- macOS and Linux: `~/.local/share/unclaimed/domains.db`
-- with XDG configured: `$XDG_DATA_HOME/unclaimed/domains.db`
-- override: `$UNCLAIMED_DB`, config `database`, or `--db <path>`
+Namecheap can check up to 50 domains in one request. Add its credentials to `.env`:
 
-The database stays on your machine. Checks go directly to registry RDAP and WHOIS services, registrar APIs you configure, and domains themselves when liveness checks are enabled.
-
-If you used the old repository-local database, keep using it with:
-
-```sh
-unclaimed stats --db ./data/domains.db
-unclaimed refresh --all --db ./data/domains.db
+```dotenv
+NAMECHEAP_API_USER=your-user
+NAMECHEAP_API_KEY=your-key
+NAMECHEAP_USERNAME=your-user
+# Optional when automatic IP detection is unsuitable
+NAMECHEAP_CLIENT_IP=203.0.113.10
 ```
 
-## Commands
+Then run the faster registrar-backed refresh:
+
+```sh
+unclaimed refresh --all --fast
+```
+
+Your client IP must be allowed in Namecheap. TLDs that Namecheap does not sell fall back to RDAP or WHOIS.
+
+Press `b` on an available result in the interactive interface to open it at a registrar. Porkbun is used when its pricing feed covers the TLD. Netim handles `.md`, `.so`, and the fallback route.
+
+## Your catalogue stays on your machine
+
+The SQLite database lives in your normal local data directory:
+
+| Environment | Default path |
+| --- | --- |
+| macOS and Linux | `~/.local/share/unclaimed/domains.db` |
+| XDG configured | `$XDG_DATA_HOME/unclaimed/domains.db` |
+| Explicit override | `$UNCLAIMED_DB`, config `database`, or `--db <path>` |
+
+Unclaimed has no account or hosted API. Checks go directly to registry RDAP and WHOIS services, registrar APIs you configure, and domains themselves when liveness checks are enabled.
+
+## Give your agent the focused workflow
+
+The repository includes a skill that teaches agents to use explicit commands, keep `unknown` separate from `available`, and avoid starting a huge refresh unless you asked for one.
+
+```sh
+npx skills add iannuttall/unclaimed
+```
+
+The Skills CLI discovers the `unclaimed` skill directly from the repository. There are no manual copies or symlinks to maintain.
+
+## Command reference
 
 | Command | What it does |
 | --- | --- |
-| `check <word\|domain>` | Check one word across TLDs or one complete domain |
-| `sweep` | Seed words and check new or unresolved rows |
-| `refresh` | Recheck all rows in the selected scope |
-| `verify` | Recheck rows with one stored status |
-| `price` | Add registrar pricing to available rows |
-| `available` | List domains marked available |
-| `candidates` | List registered domains with no live site |
-| `dropping` | List registered domains by estimated drop date |
-| `search <term>` | Search stored words |
-| `stats` | Show database coverage and status counts |
-| `config` | Show active config and database paths |
+| `check <word\|domain>` | Check one word across TLDs or one complete domain. |
+| `sweep` | Seed words and check new or unresolved rows. |
+| `refresh` | Recheck saved rows in the selected scope. |
+| `verify` | Recheck rows with one stored status. |
+| `price` | Add registrar pricing to available rows. |
+| `available` | List domains marked available. |
+| `candidates` | List registered domains with no live site. |
+| `dropping` | List registered domains by estimated drop date. |
+| `search <term>` | Search stored words. |
+| `stats` | Show database coverage and status counts. |
+| `config` | Show active config and database paths. |
 
-Run `unclaimed --help` for the compact command reference.
+Run `unclaimed --help` for flags and examples.
 
-## Agent skill
+## Develop locally
 
-The npm package includes an agent skill at `skills/unclaimed/SKILL.md`. It teaches agents to choose a focused check, run a full refresh when requested, extend TLD routing, and avoid reporting `unknown` as available.
-
-To use it from this repository, add or symlink [`packages/cli/skills/unclaimed`](packages/cli/skills/unclaimed) to your agent's skills directory.
-
-## Development
-
-This is a pnpm and Turborepo workspace:
+Unclaimed is a pnpm and Turborepo workspace:
 
 ```text
-packages/core     registry resolution and bundled words
-packages/cli      npm package, CLI, SQLite store, pricing, and skill
-apps/worker       optional Cloudflare Worker API kept separate from npm
-scripts           reproducible word-corpus tooling
-research          kept research artifacts
+packages/core       registry resolution and bundled words
+packages/cli        npm package, CLI, SQLite store, pricing, and skill
+packages/cli/src/ui interactive Ink interface
+scripts             word-corpus and repository checks
+research            source research kept out of runtime code
 ```
 
 ```sh
@@ -229,34 +247,15 @@ corepack enable
 pnpm install
 pnpm unclaimed check orbit --tlds io,ai,dev
 pnpm check
+pnpm test:package-install
+pnpm security:check
 pnpm pack:dry-run
 ```
 
-The repository command uses `./data/domains.db` so `pnpm unclaimed` opens the existing development catalogue. The published package uses the per-user data path described above.
+The repository command uses `./data/domains.db`. The published package uses the per-user data path described above.
 
-The optional Worker is not required by the CLI or npm package. Its D1 binding must be configured before deployment.
-
-## Publishing
-
-The first publish has to come from a local npm session so the package exists before trusted publishing is configured:
-
-```sh
-pnpm check
-pnpm pack:dry-run
-cd packages/cli
-npm publish --access public
-```
-
-Then open the `unclaimed` package settings on npm and add a GitHub Actions trusted publisher with these values:
-
-- Organization or user: `iannuttall`
-- Repository: `unclaimed`
-- Workflow filename: `publish.yml`
-- Environment: leave blank
-- Allowed action: `npm publish`
-
-The workflow follows later version changes on `main`, runs the full checks, publishes through OIDC, and tags the version. It skips publishing cleanly until the initial package exists. Use the manual workflow with `dryRun: true` to test the release path without publishing.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a change. [AGENTS.md](AGENTS.md) records the product rules and common traps for coding agents.
 
 ## License
 
-MIT. The interactive interface is adapted from [Yoinks](https://github.com/pablostanley/yoinks); see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Unclaimed is available under the [MIT License](LICENSE). The interactive interface is adapted from [Yoinks](https://github.com/pablostanley/yoinks); details are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

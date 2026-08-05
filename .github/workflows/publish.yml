@@ -84,6 +84,8 @@ jobs:
           echo "tagged=${tagged}" >> "$GITHUB_OUTPUT"
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - run: pnpm test:package-install:built
+      - run: pnpm security:check
       - run: pnpm pack:dry-run
       - name: Publish dry run
         if: github.event_name == 'workflow_dispatch' && inputs.dryRun == 'true'
