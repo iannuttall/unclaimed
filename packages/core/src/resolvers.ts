@@ -223,13 +223,17 @@ async function paceWhois(server: string): Promise<void> {
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
 }
 
-/** One WHOIS lookup, classified. Returns "unknown" on any transport error. */
+/**
+ * One WHOIS lookup, classified. Returns "unknown" on a transport error or
+ * when IANA reports that the TLD has no WHOIS server.
+ */
 async function runWhois(
   tld: string,
   domain: string,
 ): Promise<{ status: Status; expiry: string | null }> {
   if (!whoisImpl) return { status: "unknown", expiry: null };
   const server = WHOIS_OVERRIDES[tld] ?? (await discoverWhoisServer(tld));
+  if (!server) return { status: "unknown", expiry: null };
   try {
     await paceWhois(server);
     const text = await whoisImpl(server, domain);
@@ -241,18 +245,21 @@ async function runWhois(
   }
 }
 
-const discoveredWhois = new Map<string, string>();
+/** A null value means that IANA lists no WHOIS server for the TLD. */
+const discoveredWhois = new Map<string, string | null>();
 
-async function discoverWhoisServer(tld: string): Promise<string> {
+async function discoverWhoisServer(tld: string): Promise<string | null> {
   const cached = discoveredWhois.get(tld);
-  if (cached) return cached;
+  if (cached !== undefined) return cached;
 
-  let server = `whois.nic.${tld}`;
+  let server: string | null = `whois.nic.${tld}`;
   if (whoisImpl) {
     try {
       const response = await whoisImpl("whois.iana.org", tld, 4000);
-      const referral = response.match(/^whois:\s*(\S+)/im)?.[1];
-      if (referral) server = referral.toLowerCase();
+      // Horizontal whitespace keeps the match on the whois line. `\s` also
+      // matches newlines and can read the next field when the value is empty.
+      const field = response.match(/^whois:[ \t]*([^\r\n]*)/im);
+      server = field?.[1].trim().toLowerCase() || null;
     } catch {
       // The conventional host remains a useful fallback.
     }
@@ -334,7 +341,10 @@ export async function checkDomain(
       if (whois.status === "registered") {
         return finalize("registered", "whois", whois.expiry); // taken/reserved
       }
-      return finalize("available", "rdap", null); // confirmed, or WHOIS unsure
+      if (whois.status === "available") {
+        return finalize("available", "rdap", null); // both sources agree
+      }
+      return finalize("unknown", "whois", null); // RDAP could not be confirmed
     }
 
     // RDAP unknown. If the caller pinned "rdap", report unknown rather than

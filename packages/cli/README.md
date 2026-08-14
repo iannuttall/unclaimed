@@ -85,6 +85,8 @@ Unclaimed discovers normal WHOIS routes through IANA. The local config supports 
 
 Confirm an available result at a registrar before buying. Reservations, premium prices, and fresh registrations can change the final answer.
 
+An automatic check confirms an RDAP not-found response through WHOIS. If the registry has no WHOIS service, the result stays `unknown`.
+
 ## Install the agent skill
 
 ```sh
