@@ -52,3 +52,78 @@ test("transport failures stay unknown", async () => {
   const result = await checkDomain("orbit.test", { source: "whois" });
   assert.equal(result.status, "unknown");
 });
+
+function ianaRecord(whoisValue: string, newline = "\r\n"): string {
+  return [
+    "domain:       PROBE",
+    "organisation: Example Registry",
+    "",
+    `whois:        ${whoisValue}`,
+    "",
+    "status:       ACTIVE",
+    "created:      2014-11-20",
+    "",
+  ].join(newline);
+}
+
+test("an empty IANA whois field does not consume the next line", async () => {
+  const asked: string[] = [];
+  setWhoisTransport(async (server) => {
+    asked.push(server);
+    return ianaRecord("");
+  });
+
+  const result = await checkDomain("orbit.probeempty", { source: "whois" });
+
+  assert.equal(result.status, "unknown");
+  assert.deepEqual(asked, ["whois.iana.org"]);
+});
+
+test("an IANA whois referral works with CRLF records", async () => {
+  const asked: string[] = [];
+  setWhoisTransport(async (server) => {
+    asked.push(server);
+    if (server === "whois.iana.org") return ianaRecord("whois.nic.probefull");
+    return "No match for domain";
+  });
+
+  const result = await checkDomain("orbit.probefull", { source: "whois" });
+
+  assert.equal(result.status, "available");
+  assert.deepEqual(asked, ["whois.iana.org", "whois.nic.probefull"]);
+});
+
+test("an unconfirmed RDAP 404 stays unknown", async (context) => {
+  const originalFetch = globalThis.fetch;
+  context.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+  globalThis.fetch = async () => new Response(null, { status: 404 });
+  configureResolvers({
+    rdap: { probeunconfirmed: "https://rdap.example/domain/{domain}" },
+  });
+  setWhoisTransport(async () => ianaRecord(""));
+
+  const result = await checkDomain("orbit.probeunconfirmed");
+
+  assert.equal(result.status, "unknown");
+  assert.equal(result.source, "whois");
+});
+
+test("an RDAP 404 is available when WHOIS agrees", async (context) => {
+  const originalFetch = globalThis.fetch;
+  context.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+  globalThis.fetch = async () => new Response(null, { status: 404 });
+  configureResolvers({
+    rdap: { probeconfirmed: "https://rdap.example/domain/{domain}" },
+    whois: { probeconfirmed: "whois.registry.probeconfirmed" },
+  });
+  setWhoisTransport(async () => "No match for domain");
+
+  const result = await checkDomain("orbit.probeconfirmed");
+
+  assert.equal(result.status, "available");
+  assert.equal(result.source, "rdap");
+});

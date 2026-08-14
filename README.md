@@ -89,6 +89,8 @@ Every result has one of three states:
 
 An available result is a strong lead, not a purchase guarantee. Registrars can reserve a name, apply premium pricing, or receive another registration first. Confirm the domain before buying it.
 
+An RDAP not-found response needs WHOIS confirmation during an automatic check. If the registry has no WHOIS service, the result stays `unknown` instead of becoming a false `available` result.
+
 ## Search the bundled word list
 
 `sweep` adds the bundled words to the local catalogue and checks rows that are new or unresolved. Stop it whenever you need to. The next run skips confident saved answers and carries on.

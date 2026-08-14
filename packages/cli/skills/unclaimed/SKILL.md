@@ -74,4 +74,6 @@ Only add an availability pattern after inspecting that registry's real response.
 - `unknown` means the registry timed out, rate-limited, or returned an unrecognised response. Do not report it as available.
 - Premium price data is registrar-specific and can change.
 
+An automatic check confirms an RDAP not-found response through WHOIS. If the registry has no WHOIS service, report the result as `unknown`.
+
 When presenting candidates, keep the exact single word visible, include its TLD, and separate confirmed availability from unknown results.
