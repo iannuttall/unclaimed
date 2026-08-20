@@ -10,6 +10,7 @@ const TLD_TIER: Record<string, number> = {
   com: 100,
   ai: 96,
   io: 92,
+  bot: 88,
   co: 82,
   dev: 82,
   app: 80,

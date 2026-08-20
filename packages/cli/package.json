@@ -1,6 +1,6 @@
 {
   "name": "unclaimed",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Find and track available single-word domains from your terminal.",
   "author": "Ian Nuttall",
   "license": "MIT",

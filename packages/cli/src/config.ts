@@ -6,6 +6,7 @@ import { configureResolvers, type ResolverConfig } from "@unclaimed/core";
 export const DEFAULT_TLDS = [
   "io",
   "ai",
+  "bot",
   "dev",
   "app",
   "sh",

@@ -23,7 +23,7 @@ test("shows the single-word commands", () => {
   const output = run(["--help"]);
   assert.match(output, /unclaimed check <domain\|word>/);
   assert.match(output, /unclaimed refresh \[--all\]/);
-  assert.match(output, /default TLDs:.*md/);
+  assert.match(output, /default TLDs:.*bot.*md/);
 });
 
 test("keeps the bare command headless without a TTY", () => {

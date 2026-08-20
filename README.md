@@ -101,6 +101,14 @@ unclaimed available --sort commercial --limit 50
 unclaimed stats
 ```
 
+`.bot` has RDAP but no WHOIS service, so a normal sweep keeps unregistered
+names as `unknown`. Use Namecheap bulk checks for a confirmed `.bot` scan:
+
+```sh
+unclaimed sweep --tlds bot --fast
+unclaimed available --tlds bot --max-len 8 --sort commercial --limit 500
+```
+
 The useful names are usually hiding in a much larger result set. Filter before you browse:
 
 ```sh

@@ -52,6 +52,14 @@ npx unclaimed check orbit.dev
 
 The bundled catalogue contains 11,822 common and brandable English words. `sweep` checks new and unresolved rows, saves each result as it arrives, and resumes safely after a stop.
 
+`.bot` has RDAP but no WHOIS service. Use Namecheap bulk checks so free names
+can be confirmed instead of left as `unknown`:
+
+```sh
+unclaimed sweep --tlds bot --fast
+unclaimed available --tlds bot --max-len 8 --sort commercial --limit 500
+```
+
 ```sh
 unclaimed sweep --tlds io,ai,dev
 unclaimed available --sort commercial --limit 50

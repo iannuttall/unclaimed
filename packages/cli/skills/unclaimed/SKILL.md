@@ -44,6 +44,17 @@ unclaimed refresh --all --fast
 
 Fast mode uses registrar bulk checks for supported TLDs and falls back to RDAP or WHOIS for the rest. It needs `NAMECHEAP_API_USER`, `NAMECHEAP_API_KEY`, and `NAMECHEAP_USERNAME`; Namecheap must allow the current client IP.
 
+Use fast mode for `.bot`. The registry has RDAP but no WHOIS service, so a
+normal RDAP not-found result cannot pass the required WHOIS confirmation:
+
+```sh
+unclaimed sweep --tlds bot --fast
+unclaimed available --tlds bot --max-len 8 --sort commercial
+```
+
+Publish only rows marked `available`. Never include `unknown` rows in a
+candidate list.
+
 ## Add TLDs
 
 For a one-off check, pass any delegated suffix:
